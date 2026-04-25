@@ -12,7 +12,7 @@
     "@clerk/nextjs": "^7.2.5",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^7.8.0",
-    "@trigger.dev/react-hooks": "^4.4.4",
+    "@trigger.dev/react-hooks": "4.4.4",
     "@trigger.dev/sdk": "4.4.4",
     "@uppy/core": "^5.2.0",
     "@uppy/drag-drop": "^5.1.0",
