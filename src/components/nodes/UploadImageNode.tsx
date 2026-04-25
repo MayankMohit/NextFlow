@@ -1,19 +1,63 @@
 'use client'
 
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Image, Upload } from 'lucide-react'
+import { Image, Upload, Loader2 } from 'lucide-react'
 import { useState } from 'react'
+import { useWorkflowStore } from '@/store/workflowStore'
 
-export default function UploadImageNode({ selected }: NodeProps) {
-  const [preview, setPreview] = useState<string | null>(null)
+export default function UploadImageNode({ selected, data, id }: NodeProps) {
+  const { updateNodeData } = useWorkflowStore()
   const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const imageUrl = typeof data.imageUrl === 'string' ? data.imageUrl : null
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    const url = URL.createObjectURL(file)
-    setPreview(url)
-    // Transloadit upload will go here later
+
+    setUploading(true)
+    setError(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const params = JSON.stringify({
+        auth: { key: process.env.NEXT_PUBLIC_TRANSLOADIT_KEY },
+        steps: {
+          ':original': { robot: '/upload/handle' },
+        },
+      })
+      formData.append('params', params)
+
+      const res = await fetch('https://api2.transloadit.com/assemblies', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await res.json()
+
+      if (result.error) throw new Error(result.error)
+
+      // Poll until assembly is complete
+      let assembly = result
+      while (assembly.ok !== 'ASSEMBLY_COMPLETED') {
+        await new Promise((r) => setTimeout(r, 1000))
+        const poll = await fetch(`https://api2.transloadit.com/assemblies/${assembly.assembly_id}`)
+        assembly = await poll.json()
+        if (assembly.error) throw new Error(assembly.error)
+      }
+
+      const url = assembly.uploads?.[0]?.url
+      if (!url) throw new Error('No URL returned from Transloadit')
+
+      updateNodeData(id, { imageUrl: url })
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
   }
 
   return (
@@ -21,44 +65,59 @@ export default function UploadImageNode({ selected }: NodeProps) {
       w-64 bg-[#1c1c1c] border rounded-lg overflow-hidden
       ${selected ? 'border-violet-500' : 'border-[#2a2a2a]'}
     `}>
-      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2a2a2a]">
         <Image size={13} className="text-violet-400" />
         <span className="text-white text-xs font-medium">Upload Image</span>
       </div>
 
-      {/* Body */}
       <div className="p-3">
-        {preview ? (
+        {imageUrl ? (
           <div className="relative">
             <img
-              src={preview}
+              src={imageUrl}
               alt="preview"
               className="w-full h-32 object-cover rounded border border-[#2a2a2a]"
             />
             <button
-              onClick={() => setPreview(null)}
-              className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded"
+              onClick={() => updateNodeData(id, { imageUrl: null })}
+              className="absolute top-1 right-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded hover:bg-black/80"
             >
               ✕
             </button>
           </div>
         ) : (
-          <label className="flex flex-col items-center justify-center w-full h-32 border border-dashed border-[#2a2a2a] rounded cursor-pointer hover:border-violet-500 transition-colors">
-            <Upload size={20} className="text-[#666] mb-1" />
-            <span className="text-[#666] text-xs">Click to upload</span>
-            <span className="text-[#444] text-xs mt-0.5">jpg, png, webp, gif</span>
+          <label className={`
+            flex flex-col items-center justify-center w-full h-32
+            border border-dashed rounded transition-colors
+            ${uploading ? 'border-violet-500 cursor-wait' : 'border-[#2a2a2a] cursor-pointer hover:border-violet-500'}
+          `}>
+            {uploading ? (
+              <>
+                <Loader2 size={20} className="text-violet-400 animate-spin mb-1" />
+                <span className="text-violet-400 text-xs">Uploading...</span>
+              </>
+            ) : (
+              <>
+                <Upload size={20} className="text-[#666] mb-1" />
+                <span className="text-[#666] text-xs">Click to upload</span>
+                <span className="text-[#444] text-xs mt-0.5">jpg, png, webp, gif</span>
+              </>
+            )}
             <input
               type="file"
-              accept="image/jpg,image/jpeg,image/png,image/webp,image/gif"
+              accept="image/jpeg,image/png,image/webp,image/gif"
               className="hidden"
+              disabled={uploading}
               onChange={handleFileChange}
             />
           </label>
         )}
+
+        {error && (
+          <p className="text-red-400 text-xs mt-2">{error}</p>
+        )}
       </div>
 
-      {/* Output Handle */}
       <Handle
         type="source"
         position={Position.Right}

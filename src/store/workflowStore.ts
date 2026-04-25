@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { create } from "zustand";
 import {
   type Node,
   type Edge,
@@ -8,16 +8,16 @@ import {
   type OnNodesChange,
   type OnEdgesChange,
   type OnConnect,
-} from '@xyflow/react'
+} from "@xyflow/react";
 
 interface WorkflowStore {
-  nodes: Node[]
-  edges: Edge[]
-  onNodesChange: OnNodesChange
-  onEdgesChange: OnEdgesChange
-  onConnect: OnConnect
-  addNode: (node: Node) => void
-  updateNodeData: (nodeId: string, data: Record<string, unknown>) => void
+  nodes: Node[];
+  edges: Edge[];
+  onNodesChange: OnNodesChange;
+  onEdgesChange: OnEdgesChange;
+  onConnect: OnConnect;
+  addNode: (node: Node) => void;
+  updateNodeData: (nodeId: string, data: Record<string, unknown>) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
@@ -33,13 +33,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   onConnect: (connection) =>
     set({ edges: addEdge({ ...connection, animated: true }, get().edges) }),
 
-  addNode: (node) =>
-    set({ nodes: [...get().nodes, node] }),
+  addNode: (node) => set({ nodes: [...get().nodes, node] }),
 
-  updateNodeData: (nodeId, data) =>
+    updateNodeData: (nodeId, data) => {
+      console.log(`Updating node ${nodeId} with data:`, data);
     set({
       nodes: get().nodes.map((n) =>
-        n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n
+        n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n,
       ),
-    }),
-}))
+    });
+  },
+}));

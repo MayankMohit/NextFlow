@@ -2,16 +2,20 @@
 
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Crop } from 'lucide-react'
-import { useState } from 'react'
+import { useWorkflowStore } from '@/store/workflowStore'
 
-export default function CropImageNode({ selected, data }: NodeProps) {
-  const [x, setX] = useState(0)
-  const [y, setY] = useState(0)
-  const [w, setW] = useState(100)
-  const [h, setH] = useState(100)
+export default function CropImageNode({ selected, data, id }: NodeProps) {
+  const { updateNodeData } = useWorkflowStore()
 
   const isConnected = (handle: string) =>
     (data.connectedInputs as string[] | undefined)?.includes(handle)
+
+  const fields = [
+    { label: 'X %',      key: 'xPercent',      handle: 'x_percent',      default: 0   },
+    { label: 'Y %',      key: 'yPercent',      handle: 'y_percent',      default: 0   },
+    { label: 'Width %',  key: 'widthPercent',  handle: 'width_percent',  default: 100 },
+    { label: 'Height %', key: 'heightPercent', handle: 'height_percent', default: 100 },
+  ]
 
   return (
     <div className={`
@@ -24,28 +28,22 @@ export default function CropImageNode({ selected, data }: NodeProps) {
       </div>
 
       <div className="p-3 flex flex-col gap-2">
-        {[
-          { label: 'X %', value: x, set: setX, handle: 'x_percent' },
-          { label: 'Y %', value: y, set: setY, handle: 'y_percent' },
-          { label: 'Width %', value: w, set: setW, handle: 'width_percent' },
-          { label: 'Height %', value: h, set: setH, handle: 'height_percent' },
-        ].map(({ label, value, set, handle }) => (
+        {fields.map(({ label, key, handle, default: def }) => (
           <div key={handle} className="flex items-center gap-2">
             <span className="text-[#666] text-xs w-14 shrink-0">{label}</span>
             <input
               type="number"
               min={0}
               max={100}
-              value={value}
               disabled={isConnected(handle)}
-              onChange={(e) => set(Number(e.target.value))}
+              defaultValue={(data[key] as number) ?? def}
+              onChange={(e) => updateNodeData(id, { [key]: Number(e.target.value) })}
               className="flex-1 bg-[#141414] text-white text-xs rounded p-1 border border-[#2a2a2a] outline-none disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
         ))}
       </div>
 
-      {/* Input Handles */}
       <Handle type="target" position={Position.Left} id="image_url"
         style={{ top: '20%', background: '#666', width: 10, height: 10, border: '2px solid #888' }} />
       <Handle type="target" position={Position.Left} id="x_percent"
@@ -57,7 +55,6 @@ export default function CropImageNode({ selected, data }: NodeProps) {
       <Handle type="target" position={Position.Left} id="height_percent"
         style={{ top: '80%', background: '#666', width: 10, height: 10, border: '2px solid #888' }} />
 
-      {/* Output Handle */}
       <Handle type="source" position={Position.Right} id="output"
         style={{ background: '#7c3aed', width: 10, height: 10, border: '2px solid #a78bfa' }} />
     </div>

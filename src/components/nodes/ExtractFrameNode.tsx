@@ -2,10 +2,10 @@
 
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Film } from 'lucide-react'
-import { useState } from 'react'
+import { useWorkflowStore } from '@/store/workflowStore'
 
-export default function ExtractFrameNode({ selected, data }: NodeProps) {
-  const [timestamp, setTimestamp] = useState('0')
+export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
+  const { updateNodeData } = useWorkflowStore()
 
   const isConnected = (handle: string) =>
     (data.connectedInputs as string[] | undefined)?.includes(handle)
@@ -25,9 +25,9 @@ export default function ExtractFrameNode({ selected, data }: NodeProps) {
           <span className="text-[#666] text-xs w-20 shrink-0">Timestamp</span>
           <input
             type="text"
-            value={timestamp}
             disabled={isConnected('timestamp')}
-            onChange={(e) => setTimestamp(e.target.value)}
+            defaultValue={(data.timestamp as string) ?? '0'}
+            onChange={(e) => updateNodeData(id, { timestamp: e.target.value })}
             placeholder="0 or 50%"
             className="flex-1 bg-[#141414] text-white text-xs rounded p-1 border border-[#2a2a2a] outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-[#444]"
           />
@@ -35,13 +35,11 @@ export default function ExtractFrameNode({ selected, data }: NodeProps) {
         <p className="text-[#444] text-xs">seconds or percentage e.g. 50%</p>
       </div>
 
-      {/* Input Handles */}
       <Handle type="target" position={Position.Left} id="video_url"
         style={{ top: '35%', background: '#666', width: 10, height: 10, border: '2px solid #888' }} />
       <Handle type="target" position={Position.Left} id="timestamp"
         style={{ top: '65%', background: '#666', width: 10, height: 10, border: '2px solid #888' }} />
 
-      {/* Output Handle */}
       <Handle type="source" position={Position.Right} id="output"
         style={{ background: '#7c3aed', width: 10, height: 10, border: '2px solid #a78bfa' }} />
     </div>

@@ -114,12 +114,46 @@ export default function LeftSidebar() {
     router.push("/sign-in");
   };
 
+  const getInitialData = (type: string) => {
+    switch (type) {
+      case "textNode":
+        return { label: "Text", text: "", status: "idle" };
+      case "uploadImageNode":
+        return { label: "Upload Image", imageUrl: null, status: "idle" };
+      case "uploadVideoNode":
+        return { label: "Upload Video", videoUrl: null, status: "idle" };
+      case "llmNode":
+        return {
+          label: "LLM",
+          model: "gemini-2.0-flash",
+          result: null,
+          status: "idle",
+        };
+      case "cropImageNode":
+        return {
+          label: "Crop Image",
+          xPercent: 0,
+          yPercent: 0,
+          widthPercent: 100,
+          heightPercent: 100,
+          status: "idle",
+        };
+      case "extractFrameNode":
+        return { label: "Extract Frame", timestamp: "0", status: "idle" };
+      default:
+        return { label: type, status: "idle" };
+    }
+  };
+
   const handleAddNode = (type: string) => {
     const newNode = {
       id: `${type}-${Date.now()}`,
       type,
-      position: { x: 200, y: 200 },
-      data: { label: type },
+      position: {
+        x: 200 + Math.random() * 100,
+        y: 200 + Math.random() * 100,
+      },
+      data: getInitialData(type),
     };
     addNode(newNode);
   };
@@ -167,10 +201,7 @@ export default function LeftSidebar() {
                   className="flex items-center gap-2 px-2 py-2 rounded hover:bg-[#2a2a2a] text-white text-sm w-full text-left transition-colors"
                   onClick={() => handleAddNode(node.type)}
                 >
-                  <node.icon
-                    size={15}
-                    className="text-violet-400 shrink-0"
-                  />
+                  <node.icon size={15} className="text-violet-400 shrink-0" />
                   <span className="truncate">{node.label}</span>
                 </button>
               ))}
