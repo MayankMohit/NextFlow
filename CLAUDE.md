@@ -1,5 +1,46 @@
 @AGENTS.md
 
+<!-- UI LAYOUT START -->
+# UI Layout Spec (NextFlow — /workflow/:id)
+
+## Page Structure
+Single route `/workflow/:id`. Three-column layout: LeftSidebar | Main Canvas | RightSidebar.
+
+## Left Sidebar
+- Collapsible (drag edge to resize; collapses to icon-only below threshold)
+- Search bar to filter nodes
+- "Quick Access" section with 6 node buttons: Text, Upload Image, Upload Video, LLM, Crop Image, Extract Frame
+- Each button: click to add to canvas, or drag onto canvas
+- Bottom: user avatar + username, sign-out
+
+## Main Canvas (center)
+**Top-left corner:** Logo dropdown (import JSON, export JSON, projects submenu) + project name (inline edit, default "Untitled") + Run button
+
+**Top-right corner:** Light/dark toggle + Assets panel button + History panel button
+
+**Bottom-left corner:** Undo, Redo, Keyboard shortcuts modal button
+
+**Bottom-center:** Canvas tools — Add node, Draw selection, Cut connections, Presets
+
+**Bottom-right:** MiniMap (built into ReactFlow)
+
+**Canvas:** Dotted grid background (light/dark aware), React Flow nodes & edges, pan/zoom/fit-view
+
+## Right Sidebar (toggle-open)
+Opens when user clicks Assets or History button in top-right. Clicking same button again closes it.
+
+**Assets panel:** Grid of generated images/videos. Click opens modal with: full preview, prompt used, created_at, dimensions, file size, model used, copy URL button, download button.
+
+**History panel:** List of workflow runs (each run = one card). Each card shows: run number, timestamp, status badge (success/failed/partial), scope (full/partial/single), duration, expandable node-level details. Card background has a minimap thumbnail of the node layout (future: Krea.ai card style). Clicking a run expands node-level execution details.
+
+## Styling notes
+- Dark-first (#0a0a0a background, #1c1c1c panels, #2a2a2a borders)
+- Violet accent (#7c3aed edges, handles, active states)
+- Minimal working version now; pixel-perfect Krea.ai styling later
+- Animated purple edges (stroke: #7c3aed, animated: true)
+- Nodes pulse violet glow when running (animate-pulse shadow-violet-500/30)
+<!-- UI LAYOUT END -->
+
 
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)

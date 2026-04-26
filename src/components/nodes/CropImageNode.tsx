@@ -7,6 +7,7 @@ import { useWorkflowStore } from '@/store/workflowStore'
 export default function CropImageNode({ selected, data, id }: NodeProps) {
   const { updateNodeData } = useWorkflowStore()
 
+  const isRunning = data.status === 'running'
   const isConnected = (handle: string) =>
     (data.connectedInputs as string[] | undefined)?.includes(handle)
 
@@ -21,10 +22,14 @@ export default function CropImageNode({ selected, data, id }: NodeProps) {
     <div className={`
       w-64 bg-[#1c1c1c] border rounded-lg overflow-hidden
       ${selected ? 'border-violet-500' : 'border-[#2a2a2a]'}
+      ${isRunning ? 'animate-pulse shadow-lg shadow-violet-500/30' : ''}
     `}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2a2a2a]">
         <Crop size={13} className="text-violet-400" />
         <span className="text-white text-xs font-medium">Crop Image</span>
+        {isRunning && (
+          <span className="ml-auto text-xs text-violet-400 animate-pulse">Running...</span>
+        )}
       </div>
 
       <div className="p-3 flex flex-col gap-2">

@@ -4,7 +4,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Brain } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 
-const MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+const MODELS = ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-3.1-pro-preview"];
 
 export default function LLMNode({ selected, data, id }: NodeProps) {
   const { updateNodeData } = useWorkflowStore();
