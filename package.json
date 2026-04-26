@@ -21,11 +21,13 @@
     "@uppy/status-bar": "^5.1.0",
     "@uppy/transloadit": "^5.5.1",
     "@xyflow/react": "^12.10.2",
+    "image-size": "^2.0.2",
     "lucide-react": "^1.11.0",
     "next": "16.2.4",
     "pg": "^8.20.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sharp": "^0.34.5",
     "zod": "^4.3.6",
     "zustand": "^5.0.12"
   },

@@ -13,20 +13,22 @@ export const llmTask = task({
   id: 'llm-task',
   retry: { maxAttempts: 2 },
   run: async (payload: LLMPayload) => {
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not set')
+
+    const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: payload.model })
 
     const parts: any[] = []
 
-    // Add system prompt if provided
     if (payload.systemPrompt) {
       parts.push({ text: `System: ${payload.systemPrompt}\n\n` })
     }
 
-    // Add images if provided
     if (payload.imageUrls && payload.imageUrls.length > 0) {
       for (const url of payload.imageUrls) {
         const imageRes = await fetch(url)
+        if (!imageRes.ok) throw new Error(`Failed to fetch image for LLM: ${imageRes.status}`)
         const arrayBuffer = await imageRes.arrayBuffer()
         const base64 = Buffer.from(arrayBuffer).toString('base64')
         const mimeType = imageRes.headers.get('content-type') ?? 'image/jpeg'
