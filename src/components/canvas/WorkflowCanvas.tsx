@@ -7,17 +7,22 @@ import {
   MiniMap,
   SelectionMode,
   type Node,
+  type Edge,
+  type Connection,
+  type FinalConnectionState,
   useReactFlow,
+  useStore,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { useWorkflowStore } from '@/store/workflowStore'
+import { useWorkflowStore, checkIsValidConnection } from '@/store/workflowStore'
 import TextNode from '@/components/nodes/TextNode'
 import UploadImageNode from '@/components/nodes/UploadImageNode'
 import UploadVideoNode from '@/components/nodes/UploadVideoNode'
 import LLMNode from '@/components/nodes/LLMNode'
 import CropImageNode from '@/components/nodes/CropImageNode'
 import ExtractFrameNode from '@/components/nodes/ExtractFrameNode'
-import { Scissors } from 'lucide-react'
+import GradientEdge from '@/components/edges/GradientEdge'
+import { Scissors, Play, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const nodeTypes = {
@@ -27,6 +32,10 @@ const nodeTypes = {
   llmNode: LLMNode,
   cropImageNode: CropImageNode,
   extractFrameNode: ExtractFrameNode,
+}
+
+const edgeTypes = {
+  default: GradientEdge,
 }
 
 const getInitialData = (type: string) => {
@@ -49,6 +58,115 @@ const NODE_TYPES_LIST = [
   { type: 'cropImageNode', label: 'Crop Image' },
   { type: 'extractFrameNode', label: 'Extract Frame' },
 ]
+
+// --- Connect-on-drop smart modal ---
+
+const SOURCE_OUTPUT_MAP: Record<string, 'image' | 'video' | 'text'> = {
+  textNode: 'text',
+  uploadImageNode: 'image',
+  uploadVideoNode: 'video',
+  cropImageNode: 'image',
+  extractFrameNode: 'image',
+  llmNode: 'text',
+}
+
+type DropSuggestion = { nodeType: string; label: string; targetHandle?: string; sourceHandle?: string }
+
+const OUTPUT_TO_TARGETS: Record<string, DropSuggestion[]> = {
+  image: [
+    { nodeType: 'llmNode', label: 'LLM', targetHandle: 'image_url' },
+    { nodeType: 'cropImageNode', label: 'Crop Image', targetHandle: 'image_url' },
+  ],
+  video: [
+    { nodeType: 'llmNode', label: 'LLM', targetHandle: 'video_url' },
+    { nodeType: 'extractFrameNode', label: 'Extract Frame', targetHandle: 'video_url' },
+  ],
+  text: [
+    { nodeType: 'llmNode', label: 'LLM — Prompt', targetHandle: 'user_message' },
+    { nodeType: 'llmNode', label: 'LLM — System Prompt', targetHandle: 'system_prompt' },
+    { nodeType: 'extractFrameNode', label: 'Extract Frame — Timestamp', targetHandle: 'timestamp' },
+    { nodeType: 'cropImageNode', label: 'Crop Image — X%', targetHandle: 'x_percent' },
+    { nodeType: 'cropImageNode', label: 'Crop Image — Y%', targetHandle: 'y_percent' },
+    { nodeType: 'cropImageNode', label: 'Crop Image — Width%', targetHandle: 'width_percent' },
+    { nodeType: 'cropImageNode', label: 'Crop Image — Height%', targetHandle: 'height_percent' },
+  ],
+}
+
+const HANDLE_TO_SOURCES: Record<string, DropSuggestion[]> = {
+  image_url: [
+    { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
+    { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
+    { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
+  ],
+  video_url: [
+    { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
+  ],
+  system_prompt: [
+    { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
+    { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
+  ],
+  user_message: [
+    { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
+    { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
+  ],
+  timestamp: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
+  x_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
+  y_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
+  width_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
+  height_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
+}
+
+interface ConnectDropCtx {
+  x: number; y: number; flowX: number; flowY: number
+  sourceNodeId: string; sourceHandle: string | null; handleType: 'source' | 'target'
+}
+
+function ConnectDropModal({
+  ctx, suggestions, isDark, onSelect, onClose,
+}: {
+  ctx: ConnectDropCtx
+  suggestions: DropSuggestion[]
+  isDark: boolean
+  onSelect: (s: DropSuggestion) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) onClose()
+    }
+    document.addEventListener('mousedown', handler, true)
+    return () => document.removeEventListener('mousedown', handler, true)
+  }, [onClose])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      className={`fixed z-[100] border rounded-lg py-1 w-52 shadow-xl overflow-hidden ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}
+      style={{ left: ctx.x, top: ctx.y }}
+    >
+      <div className={`px-3 pt-1 pb-1.5 text-[10px] uppercase tracking-wider font-medium border-b ${isDark ? 'text-[#555] border-[#2a2a2a]' : 'text-[#aaa] border-[#e8e8e8]'}`}>
+        Add &amp; connect
+      </div>
+      {suggestions.map((s, i) => (
+        <button
+          key={i}
+          onClick={() => onSelect(s)}
+          className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${isDark ? 'text-white hover:bg-[#2a2a2a]' : 'text-[#111] hover:bg-[#f0f0f0]'}`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 // --- Cut tool geometry helpers ---
 
@@ -97,14 +215,151 @@ function buildSmoothPath(pts: { x: number; y: number }[]): string {
   return d
 }
 
+// --- Group run button ---
+// Positioned at the top-left corner of the bounding box of the selected
+// nodes, tracking pan/zoom in real time via ReactFlow's internal store.
+
+interface GroupRunButtonProps {
+  selectedNodeIds: string[]
+  isDark: boolean
+}
+
+function GroupRunButton({ selectedNodeIds, isDark }: GroupRunButtonProps) {
+  const { runNodes, runningNodeIds, saveWorkflow } = useWorkflowStore()
+
+  // Selected nodes and current viewport transform from RF's internal store.
+  // transform is [panX, panY, zoom]; flow→screen: screenX = flowX*zoom + panX
+  const selectedRFNodes = useStore(s => s.nodes.filter(n => n.selected))
+  const [panX, panY, zoom] = useStore(s => s.transform)
+
+  const isAnyRunning = selectedNodeIds.some(id => runningNodeIds.has(id))
+
+  const handleRun = async () => {
+    await saveWorkflow()
+    await runNodes(selectedNodeIds)
+  }
+
+  if (selectedRFNodes.length === 0) return null
+
+  // Bounding box top-left in flow space
+  const minFlowX = Math.min(...selectedRFNodes.map(n => n.position.x))
+  const minFlowY = Math.min(...selectedRFNodes.map(n => n.position.y))
+
+  // Convert to container-relative screen coords
+  const screenX = minFlowX * zoom + panX
+  const screenY = minFlowY * zoom + panY
+
+  // Place button 8px above the top edge; clamp so it never hides above the canvas
+  const BUTTON_W = 95
+  const GAP = 8
+  const top = Math.max(GAP, screenY)
+  const left = screenX - BUTTON_W - GAP
+
+  return (
+    <div className="absolute z-40 pointer-events-none" style={{ top, left }}>
+      <button
+        className={`
+          pointer-events-auto flex items-center gap-1.5 px-3 py-1.5
+          rounded-lg text-[12px] font-medium shadow-lg border transition-all whitespace-nowrap
+          ${isAnyRunning
+            ? 'bg-blue-900 border-blue-700 text-blue-300 cursor-wait'
+            : 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white'
+          }
+        `}
+        onClick={handleRun}
+        disabled={isAnyRunning}
+        title="Run selected nodes"
+      >
+        {isAnyRunning
+          ? <><Loader2 size={8} className="animate-spin" />Running nodes…</>
+          : <><Play size={8} />Run nodes</>
+        }
+      </button>
+    </div>
+  )
+}
+
 // --- Main canvas ---
 
 export default function WorkflowCanvas() {
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, undo, redo, saveWorkflow, runWorkflow, theme, canvasTool } = useWorkflowStore()
+  const {
+    nodes, edges, onNodesChange, onEdgesChange, onConnect,
+    addNode, undo, redo, saveWorkflow, runWorkflow, theme, canvasTool,
+  } = useWorkflowStore()
+
+  const isValidConnection = useCallback(
+    (connection: Edge | Connection) => checkIsValidConnection(connection as Connection, nodes, edges),
+    [nodes, edges],
+  )
   const { screenToFlowPosition, getEdges, getNode, deleteElements, getViewport, setViewport } = useReactFlow()
   const isDark = theme === 'dark'
 
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // ── Track which nodes are currently selected ───────────────────────────────
+  // useStore gives us live access to ReactFlow's internal node list including
+  // the `selected` flag, without needing any extra state.
+  const RUNNABLE_TYPES = new Set(['cropImageNode', 'extractFrameNode', 'llmNode'])
+
+  const selectedNodeIds = useStore(s =>
+    s.nodes.filter(n => n.selected).map(n => n.id)
+  )
+  const hasRunnableSelected = useStore(s =>
+    s.nodes.some(n => n.selected && RUNNABLE_TYPES.has(n.type ?? ''))
+  )
+  const showGroupRun = selectedNodeIds.length >= 2 && hasRunnableSelected
+
+  // Connect-on-drop modal
+  const [connectDropCtx, setConnectDropCtx] = useState<ConnectDropCtx | null>(null)
+
+  const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+    const state = connectionState as { from: unknown; fromNode?: { id: string }; fromHandle?: { id: string; type: string }; toNode: unknown }
+    if (!state.from || state.toNode !== null) return
+    const e = event as MouseEvent
+    const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    setConnectDropCtx({
+      x: Math.min(e.clientX, window.innerWidth - 220),
+      y: Math.min(e.clientY, window.innerHeight - 300),
+      flowX: flow.x, flowY: flow.y,
+      sourceNodeId: state.fromNode?.id ?? '',
+      sourceHandle: state.fromHandle?.id ?? null,
+      handleType: (state.fromHandle?.type ?? 'source') as 'source' | 'target',
+    })
+  }, [screenToFlowPosition])
+
+  const handleConnectDropSelect = useCallback((suggestion: DropSuggestion) => {
+    if (!connectDropCtx) return
+    const newId = `${suggestion.nodeType}-${Date.now()}`
+    const offsetX = connectDropCtx.handleType === 'source' ? 30 : -290
+    addNode({
+      id: newId,
+      type: suggestion.nodeType,
+      position: { x: connectDropCtx.flowX + offsetX, y: connectDropCtx.flowY - 20 },
+      data: getInitialData(suggestion.nodeType),
+    } as Node)
+    if (connectDropCtx.handleType === 'source') {
+      onConnect({
+        source: connectDropCtx.sourceNodeId,
+        sourceHandle: connectDropCtx.sourceHandle ?? 'output',
+        target: newId,
+        targetHandle: suggestion.targetHandle ?? null,
+      })
+    } else {
+      onConnect({
+        source: newId,
+        sourceHandle: suggestion.sourceHandle ?? 'output',
+        target: connectDropCtx.sourceNodeId,
+        targetHandle: connectDropCtx.sourceHandle ?? null,
+      })
+    }
+    setConnectDropCtx(null)
+  }, [connectDropCtx, addNode, onConnect])
+
+  const connectDropSuggestions: DropSuggestion[] = connectDropCtx
+    ? connectDropCtx.handleType === 'source'
+      ? OUTPUT_TO_TARGETS[SOURCE_OUTPUT_MAP[nodes.find(n => n.id === connectDropCtx.sourceNodeId)?.type ?? ''] ?? ''] ?? []
+      : HANDLE_TO_SOURCES[connectDropCtx.sourceHandle ?? ''] ?? []
+    : []
 
   // Add-node context modal (double-click / right-click on pane)
   const [addNodeCtx, setAddNodeCtx] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null)
@@ -171,10 +426,37 @@ export default function WorkflowCanvas() {
       if (ctrl && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo() }
       if (ctrl && e.key === 's') { e.preventDefault(); saveWorkflow() }
       if (ctrl && e.key === 'Enter') { e.preventDefault(); runWorkflow('full') }
+
+      if (ctrl && (e.key === '+' || e.key === '=')) {
+        e.preventDefault()
+        const el = containerRef.current
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        const { x, y, zoom } = getViewport()
+        const cx = rect.width / 2
+        const cy = rect.height / 2
+        const newZoom = Math.min(4, zoom * 1.2)
+        setViewport({ x: cx - ((cx - x) / zoom) * newZoom, y: cy - ((cy - y) / zoom) * newZoom, zoom: newZoom }, { duration: 150 })
+      }
+      if (ctrl && e.key === '-') {
+        e.preventDefault()
+        const el = containerRef.current
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        const { x, y, zoom } = getViewport()
+        const cx = rect.width / 2
+        const cy = rect.height / 2
+        const newZoom = Math.max(0.1, zoom / 1.2)
+        setViewport({ x: cx - ((cx - x) / zoom) * newZoom, y: cy - ((cy - y) / zoom) * newZoom, zoom: newZoom }, { duration: 150 })
+      }
+      if (ctrl && e.key === '0') {
+        e.preventDefault()
+        setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 })
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [undo, redo, saveWorkflow, runWorkflow])
+  }, [undo, redo, saveWorkflow, runWorkflow, getViewport, setViewport])
 
   // Custom scroll: plain = pan vertical, shift = pan horizontal, ctrl/meta = zoom on cursor
   useEffect(() => {
@@ -343,15 +625,15 @@ export default function WorkflowCanvas() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={handleConnectEnd}
+        isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         deleteKeyCode={['Delete', 'Backspace']}
         multiSelectionKeyCode="Shift"
         style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}
-        defaultEdgeOptions={{
-          animated: true,
-          style: { stroke: '#7c3aed', strokeWidth: 2 },
-        }}
+        defaultEdgeOptions={{ type: 'default' }}
         {...rfProps}
         zoomOnScroll={false}
         panOnScroll={false}
@@ -378,11 +660,19 @@ export default function WorkflowCanvas() {
         />
       </ReactFlow>
 
+      {/* Group run button — appears whenever 2+ nodes are selected */}
+      {showGroupRun && (
+        <GroupRunButton
+          selectedNodeIds={selectedNodeIds}
+          isDark={isDark}
+        />
+      )}
+
       {/* Add-node context modal */}
       {addNodeCtx && (
         <div
           ref={addModalRef}
-          className={`fixed z-[100] border rounded-lg py-1 w-44 shadow-xl overflow-hidden ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}
+          className={`fixed z-100 border rounded-lg py-1 w-44 shadow-xl overflow-hidden ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}
           style={{ left: addNodeCtx.x, top: addNodeCtx.y }}
         >
           <div className={`px-3 pt-1 pb-1.5 text-[10px] uppercase tracking-wider font-medium border-b ${isDark ? 'text-[#555] border-[#2a2a2a]' : 'text-[#aaa] border-[#e8e8e8]'}`}>
@@ -398,6 +688,17 @@ export default function WorkflowCanvas() {
             </button>
           ))}
         </div>
+      )}
+
+      {/* Connect-on-drop modal */}
+      {connectDropCtx && connectDropSuggestions.length > 0 && (
+        <ConnectDropModal
+          ctx={connectDropCtx}
+          suggestions={connectDropSuggestions}
+          isDark={isDark}
+          onSelect={handleConnectDropSelect}
+          onClose={() => setConnectDropCtx(null)}
+        />
       )}
 
       {/* Cut tool overlay — sits above ReactFlow, captures all mouse events */}

@@ -12,6 +12,8 @@ export function topologicalSort(nodes: Node[], edges: Edge[]): Node[][] {
   }
 
   for (const edge of edges) {
+    // Only count edges where both endpoints are in the target node set
+    if (!inDegree.has(edge.source) || !inDegree.has(edge.target)) continue
     inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1)
     dependents.get(edge.source)?.push(edge.target)
   }

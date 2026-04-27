@@ -35,10 +35,15 @@ export const orchestratorTask = task({
     const nodeOutputs = new Map<string, unknown>()
     const nodeRunResults: NodeRunResult[] = []
 
-    for (const node of targetNodes) {
+    // Initialize outputs from the full graph so upstream data is available
+    // when running a subset of nodes. Passthrough nodes read from node.data
+    // directly; non-passthrough nodes use lastOutput (set by the client after
+    // each layer completes) so crop/extract-frame results carry forward.
+    for (const node of nodes) {
       if (node.type === 'textNode') nodeOutputs.set(node.id, node.data.text)
-      if (node.type === 'uploadImageNode') nodeOutputs.set(node.id, node.data.imageUrl)
-      if (node.type === 'uploadVideoNode') nodeOutputs.set(node.id, node.data.videoUrl)
+      else if (node.type === 'uploadImageNode') nodeOutputs.set(node.id, node.data.imageUrl)
+      else if (node.type === 'uploadVideoNode') nodeOutputs.set(node.id, node.data.videoUrl)
+      else if (node.data.lastOutput != null) nodeOutputs.set(node.id, node.data.lastOutput)
     }
 
     for (const layer of layers) {

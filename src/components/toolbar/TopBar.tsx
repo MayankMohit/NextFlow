@@ -6,8 +6,6 @@ import {
   ChevronDown,
   Sun,
   Moon,
-  Play,
-  Loader2,
   Upload,
   Download,
   FolderOpen,
@@ -167,17 +165,6 @@ function ProjectName() {
   )
 }
 
-function RunButton() {
-  const { isRunning, runWorkflow, saveWorkflow } = useWorkflowStore();
-  const handleRun = async () => { await saveWorkflow(); await runWorkflow('full') }
-  return (
-    <button onClick={handleRun} disabled={isRunning}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${isRunning ? 'bg-violet-800 text-violet-300 cursor-wait' : 'bg-violet-600 hover:bg-violet-500 text-white'}`}>
-      {isRunning ? (<><Loader2 size={12} className="animate-spin" />Running...</>) : (<><Play size={12} />Run</>)}
-    </button>
-  )
-}
-
 function ThemeToggle() {
   const { theme, toggleTheme } = useWorkflowStore();
   const isDark = theme === 'dark'
@@ -213,7 +200,6 @@ export default function TopBar() {
       <div className="flex items-center gap-2">
         <LogoDropdown />
         <ProjectName />
-        <RunButton />
       </div>
       <div className="flex items-center gap-2">
         <ThemeToggle />

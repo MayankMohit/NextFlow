@@ -29,7 +29,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const kbd = isDark ? 'bg-[#2a2a2a] border-[#3a3a3a] text-white' : 'bg-[#f0f0f0] border-[#d0d0d0] text-[#333]'
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/50 z-[200] flex items-end justify-start p-4 pb-20 pl-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-200 flex items-end justify-start p-4 pb-20 pl-4" onClick={onClose}>
       <div className={`border rounded-xl p-4 w-72 ${panel}`} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <span className={`text-xs font-medium ${textMain}`}>Keyboard Shortcuts</span>
@@ -66,7 +66,7 @@ function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: s
   const textMuted = isDark ? 'text-[#666]' : 'text-[#888]'
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div className={`border rounded-xl p-5 shadow-2xl overflow-y-auto ${panel}`}
         style={{ width: '40vw', minHeight: '20vh', maxHeight: '80vh' }}
         onClick={e => e.stopPropagation()}>
