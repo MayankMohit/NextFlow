@@ -181,7 +181,7 @@ export default function LeftSidebar() {
               draggable
               onDragStart={e => onDragStart(e, node.type)}
               onClick={() => handleAddNode(node.type)}
-              className="text-violet-400 hover:text-white transition-colors cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-[#2a2a2a]"
+              className={`text-violet-400 transition-colors cursor-grab active:cursor-grabbing p-1.5 rounded ${isDark ? 'hover:bg-[#2a2a2a] hover:text-white' : 'hover:bg-[#e0e0e0]'}`}
             >
               <node.icon size={16} />
             </button>

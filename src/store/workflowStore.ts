@@ -124,6 +124,7 @@ interface WorkflowStore {
   isSaving: boolean
   isLoading: boolean
   theme: 'dark' | 'light'
+  setTheme: (t: 'dark' | 'light') => void
   toggleTheme: () => void
   rightPanel: RightPanelView
   setRightPanel: (panel: RightPanelView) => void
@@ -135,6 +136,9 @@ interface WorkflowStore {
   addAsset: (asset: Asset) => void
   projects: { id: string; name: string; updatedAt: string }[]
   fetchProjects: () => Promise<void>
+  deleteProject: (id: string) => Promise<void>
+  canvasTool: 'select' | 'pan' | 'cut'
+  setCanvasTool: (tool: 'select' | 'pan' | 'cut') => void
   exportWorkflow: () => void
   importWorkflow: (json: string) => void
   loadSampleWorkflow: () => void
@@ -250,7 +254,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   theme: 'dark',
-  toggleTheme: () => set(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+  setTheme: (t) => { localStorage.setItem('theme', t); set({ theme: t }) },
+  toggleTheme: () => set(s => {
+    const next = s.theme === 'dark' ? 'light' : 'dark'
+    localStorage.setItem('theme', next)
+    return { theme: next }
+  }),
 
   rightPanel: null,
   setRightPanel: (panel) => set(s => ({ rightPanel: s.rightPanel === panel ? null : panel })),
@@ -303,6 +312,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   fetchProjects: async () => {
     try { const res = await fetch('/api/projects'); if (res.ok) set({ projects: await res.json() }) } catch { /**/ }
   },
+  deleteProject: async (id) => {
+    const prev = get().projects
+    set(s => ({ projects: s.projects.filter(p => p.id !== id) }))
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    if (!res.ok) set({ projects: prev })
+  },
+
+  canvasTool: 'select',
+  setCanvasTool: (tool) => set({ canvasTool: tool }),
 
   exportWorkflow: () => {
     const { workflowName, nodes, edges } = get()
