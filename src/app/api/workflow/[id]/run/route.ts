@@ -92,10 +92,10 @@ export async function POST(
             nodeId: n.id,
             nodeType: n.type ?? "unknown",
             status: "success" as const,
-            inputs: Prisma.JsonNull,
+            inputs: Prisma.JsonNullValueInput.JsonNull,
             outputs: out
               ? ({ result: out } as unknown as Prisma.InputJsonValue)
-              : Prisma.JsonNull,
+              : Prisma.JsonNullValueInput.JsonNull,
             error: null,
             duration: 0,
           };
@@ -161,10 +161,10 @@ export async function POST(
       nodeId: nr.nodeId,
       nodeType: nr.nodeType,
       status: nr.status,
-      inputs: Prisma.JsonNull,
+      inputs: Prisma.JsonNullValueInput.JsonNull,
       outputs: nr.result
         ? ({ result: nr.result } as unknown as Prisma.InputJsonValue)
-        : Prisma.JsonNull,
+        : Prisma.JsonNullValueInput.JsonNull,
       error: nr.error,
       duration: nr.duration,
     })),
