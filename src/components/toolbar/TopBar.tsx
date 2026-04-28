@@ -223,7 +223,7 @@ export default function TopBar() {
   const isDark = theme === 'dark'
   return (
     <div className="absolute top-4 left-4 z-50 w-[calc(100%-24px)] flex items-center justify-between">
-      <div className={`flex items-center gap-2 border  rounded-xl px-3 py-3 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-120`}>
+      <div className={`flex items-center gap-2 border  rounded-xl px-2 py-2 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-120`}>
         <LogoDropdown />
         <ProjectName />
       </div>
