@@ -1,6 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { tasks, runs } from "@trigger.dev/sdk/v3";
 import type { orchestratorTask } from "@/trigger/orchestratorTask";
@@ -92,10 +91,8 @@ export async function POST(
             nodeId: n.id,
             nodeType: n.type ?? "unknown",
             status: "success" as const,
-            inputs: Prisma.JsonNullValueInput.JsonNull,
-            outputs: out
-              ? ({ result: out } as unknown as Prisma.InputJsonValue)
-              : Prisma.JsonNullValueInput.JsonNull,
+            inputs: undefined,
+            outputs: out ? { result: out } : undefined,
             error: null,
             duration: 0,
           };
@@ -161,10 +158,8 @@ export async function POST(
       nodeId: nr.nodeId,
       nodeType: nr.nodeType,
       status: nr.status,
-      inputs: Prisma.JsonNullValueInput.JsonNull,
-      outputs: nr.result
-        ? ({ result: nr.result } as unknown as Prisma.InputJsonValue)
-        : Prisma.JsonNullValueInput.JsonNull,
+      inputs: undefined,
+      outputs: nr.result ? { result: nr.result } : undefined,
       error: nr.error,
       duration: nr.duration,
     })),
