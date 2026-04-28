@@ -54,14 +54,14 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 }
 
 const PRESETS = [
-  { id: 'product-marketing', name: 'Product Marketing', description: 'Text prompt → LLM generation → image crop pipeline for product ads', icon: '🛍️' },
+  { id: 'product-marketing', name: 'Product Marketing', description: 'A workflow demonstrating all 6 node types, parallel execution and convergence point.', icon: '🛍️' },
 ]
 
 function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: string) => void }) {
   const { theme } = useWorkflowStore()
   const isDark = theme === 'dark'
   const panel = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
-  const card = isDark ? 'bg-[#141414] border-[#2a2a2a] hover:border-violet-500/50 hover:bg-[#1a1a2e]' : 'bg-[#f8f8f8] border-[#e0e0e0] hover:border-violet-400/50 hover:bg-violet-50'
+  const card = isDark ? 'bg-[#141414] border-[#2a2a2a] hover:bg-[#000000]' : 'bg-[#f8f8f8] border-[#e0e0e0] hover:bg-[#f0f0f0]'
   const textMain = isDark ? 'text-white' : 'text-[#111]'
   const textMuted = isDark ? 'text-[#666]' : 'text-[#888]'
 
@@ -83,7 +83,7 @@ function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: s
                 <p className={`text-xs mt-0.5 leading-relaxed ${textMuted}`}>{preset.description}</p>
               </div>
               <button onClick={() => { onLoad(preset.id); onClose() }}
-                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs transition-colors">
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-black-600 text-white text-xs transition-colors">
                 Load<ChevronRight size={11} />
               </button>
             </div>

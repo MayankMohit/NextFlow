@@ -232,10 +232,7 @@ function RunDetailModal({ run, runNumber, onClose }: {
                           <span className="text-red-400 text-xs break-all">Error: {nr.error}</span>
                         ) : outputVal ? (
                           <span className={`text-xs break-all leading-relaxed ${t.textMid}`}>
-                            {outputVal.startsWith('http')
-                              ? outputVal.slice(0, 70) + (outputVal.length > 70 ? '…' : '')
-                              : `"${outputVal.slice(0, 120)}${outputVal.length > 120 ? '…' : ''}"`
-                            }
+                            {outputVal.startsWith('http') ? outputVal : `"${outputVal}"`}
                           </span>
                         ) : null}
                       </div>

@@ -284,7 +284,7 @@ function GroupRunButton({ selectedNodeIds, isDark }: GroupRunButtonProps) {
 export default function WorkflowCanvas() {
   const {
     nodes, edges, onNodesChange, onEdgesChange, onConnect,
-    addNode, undo, redo, saveWorkflow, runWorkflow, theme, canvasTool,
+    addNode, undo, redo, saveWorkflow, runNodes, theme, canvasTool,
   } = useWorkflowStore()
 
   const isValidConnection = useCallback(
@@ -308,6 +308,11 @@ export default function WorkflowCanvas() {
     s.nodes.some(n => n.selected && RUNNABLE_TYPES.has(n.type ?? ''))
   )
   const showGroupRun = selectedNodeIds.length >= 2 && hasRunnableSelected
+
+  // Keep a ref so the keyboard handler always has the latest selection
+  // without needing to re-register on every selection change.
+  const selectedNodeIdsRef = useRef<string[]>(selectedNodeIds)
+  useEffect(() => { selectedNodeIdsRef.current = selectedNodeIds }, [selectedNodeIds])
 
   // Connect-on-drop modal
   const [connectDropCtx, setConnectDropCtx] = useState<ConnectDropCtx | null>(null)
@@ -425,7 +430,11 @@ export default function WorkflowCanvas() {
       if (ctrl && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
       if (ctrl && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo() }
       if (ctrl && e.key === 's') { e.preventDefault(); saveWorkflow() }
-      if (ctrl && e.key === 'Enter') { e.preventDefault(); runWorkflow('full') }
+      if (ctrl && e.key === 'Enter') {
+        e.preventDefault()
+        const ids = selectedNodeIdsRef.current
+        if (ids.length > 0) void saveWorkflow().then(() => runNodes(ids))
+      }
 
       if (ctrl && (e.key === '+' || e.key === '=')) {
         e.preventDefault()
@@ -456,7 +465,7 @@ export default function WorkflowCanvas() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [undo, redo, saveWorkflow, runWorkflow, getViewport, setViewport])
+  }, [undo, redo, saveWorkflow, runNodes, getViewport, setViewport])
 
   // Custom scroll: plain = pan vertical, shift = pan horizontal, ctrl/meta = zoom on cursor
   useEffect(() => {

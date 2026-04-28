@@ -30,10 +30,22 @@ export default function UploadImageNode({ selected, data, id }: NodeProps) {
   const subText    = isDark ? 'text-[#444]' : 'text-[#ccc]'
 
 const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
+
+  const glowKeyframes = `
+    @keyframes upload-image-node-glow {
+      0%, 100% {
+        box-shadow: 0 0 0 1.5px ${NODE_COLOR}44, 0 0 14px 4px ${NODE_COLOR}28;
+      }
+      50% {
+        box-shadow: 0 0 0 2.5px ${NODE_COLOR}bb, 0 0 30px 10px ${NODE_COLOR}50, 0 0 50px 18px ${NODE_COLOR}1e;
+      }
+    }
+  `
+
   const glowStyle: React.CSSProperties = isNodeRunning
     ? {
-        borderColor: `${NODE_COLOR}90`,
-        boxShadow: `0 0 0 1.5px ${NODE_COLOR}55, 0 0 28px 10px ${NODE_COLOR}28`,
+        borderColor: `${NODE_COLOR}aa`,
+        animation: 'upload-image-node-glow 1.8s ease-in-out infinite',
       }
     : {
         borderColor,
@@ -71,6 +83,7 @@ const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
 
   return (
     <div className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+      {isNodeRunning && <style>{glowKeyframes}</style>}
       {typeof data.error === 'string' && (
         <div className="absolute bottom-full left-0 right-0 z-10 mb-1 flex items-start gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500 text-white text-[11px] font-medium">
           <span className="flex-1 wrap-break-word leading-snug">{data.error}</span>
