@@ -11,7 +11,7 @@ export const SAMPLE_WORKFLOW = {
       type: 'uploadImageNode',
       position: { x: 80, y: 60 },
       data: {
-        imageUrl: 'https://pub-6d24529af5b6438f895cf5350a9bd511.r2.dev/bc5c40077f954c75ab60937befebc5e5/69bca808b77342cea2cb58ff135f0fc6/69beb0806dbf4065867d36c5ec2a1e8d.jpg',
+        imageUrl: undefined,
       },
     },
     {
@@ -40,7 +40,7 @@ export const SAMPLE_WORKFLOW = {
       id: 'sw-llm1',
       type: 'llmNode',
       position: { x: 876.49, y: 289.4 },
-      data: { model: 'gemini-3-flash-preview' },
+      data: { model: 'gemini-3.1-flash-lite-preview' },
     },
     // Branch B — Video
     {
@@ -48,7 +48,7 @@ export const SAMPLE_WORKFLOW = {
       type: 'uploadVideoNode',
       position: { x: 82.71, y: 632.95 },
       data: {
-        videoUrl: 'https://pub-6d24529af5b6438f895cf5350a9bd511.r2.dev/bc5c40077f954c75ab60937befebc5e5/fee862c819224bcfb5fdde971000a234/abc3af724cbd40cba382a896d7f55e3b.mp4',
+        videoUrl: undefined,
       },
     },
     {
@@ -71,7 +71,7 @@ export const SAMPLE_WORKFLOW = {
       id: 'sw-llm2',
       type: 'llmNode',
       position: { x: 1270.48, y: 627.59 },
-      data: { model: 'gemini-3-flash-preview' },
+      data: { model: 'gemini-3.1-flash-lite-preview' },
     },
   ] as Node[],
 

@@ -7,11 +7,17 @@ import type { orchestratorTask } from "@/trigger/orchestratorTask";
 import type { Node, Edge } from "@xyflow/react";
 import { z } from "zod";
 
+const PASSTHROUGH_TYPES = new Set(["textNode", "uploadImageNode", "uploadVideoNode"]);
+
 const runSchema = z.object({
   nodes: z.array(z.any()),
   edges: z.array(z.any()),
   scope: z.enum(["full", "partial", "single"]).default("full"),
   selectedNodeIds: z.array(z.string()).optional(),
+  // Passthrough node IDs to persist as instant NodeRun records (first call only)
+  passthroughNodeIds: z.array(z.string()).optional(),
+  // When set, append NodeRuns to this existing WorkflowRun instead of creating a new one
+  existingRunId: z.string().optional(),
 });
 
 export async function POST(
@@ -30,12 +36,15 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const { nodes, edges, scope, selectedNodeIds } = parsed.data as {
-    nodes: Node[];
-    edges: Edge[];
-    scope: "full" | "partial" | "single";
-    selectedNodeIds?: string[];
-  };
+  const { nodes, edges, scope, selectedNodeIds, passthroughNodeIds, existingRunId } =
+    parsed.data as {
+      nodes: Node[];
+      edges: Edge[];
+      scope: "full" | "partial" | "single";
+      selectedNodeIds?: string[];
+      passthroughNodeIds?: string[];
+      existingRunId?: string;
+    };
 
   // Resolve workflowId — create one if this is a new unsaved workflow
   let workflowId = id;
@@ -51,32 +60,69 @@ export async function POST(
     workflowId = created.id;
   }
 
-  // Create a WorkflowRun record
-  const run = await prisma.workflowRun.create({
-    data: { workflowId, userId, status: "running", scope },
-  });
+  // Either reuse an existing WorkflowRun (subsequent layers) or create a new one (first call)
+  let runId: string;
+  if (existingRunId) {
+    runId = existingRunId;
+  } else {
+    const newRun = await prisma.workflowRun.create({
+      data: { workflowId, userId, status: "running", scope },
+    });
+    runId = newRun.id;
 
-  // Trigger the orchestrator (non-blocking)
+    // Passthrough NodeRun records are created only on the first call
+    const passthroughNodes = (
+      passthroughNodeIds
+        ? nodes.filter((n: Node) => passthroughNodeIds.includes(n.id))
+        : scope === "full"
+        ? nodes.filter((n: Node) => PASSTHROUGH_TYPES.has(n.type ?? ""))
+        : []
+    ) as Node[];
+
+    if (passthroughNodes.length > 0) {
+      await prisma.nodeRun.createMany({
+        data: passthroughNodes.map((n: Node) => {
+          const data = (n.data ?? {}) as Record<string, unknown>;
+          let out: string | null = null;
+          if (n.type === "textNode") out = (data.text as string) || null;
+          else if (n.type === "uploadImageNode") out = (data.imageUrl as string) || null;
+          else if (n.type === "uploadVideoNode") out = (data.videoUrl as string) || null;
+          return {
+            workflowRunId: runId,
+            nodeId: n.id,
+            nodeType: n.type ?? "unknown",
+            status: "success" as const,
+            inputs: Prisma.JsonNull,
+            outputs: out
+              ? ({ result: out } as unknown as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            error: null,
+            duration: 0,
+          };
+        }),
+      });
+    }
+  }
+
+  // Trigger the orchestrator for the selected layer of nodes
   const handle = await tasks.trigger<typeof orchestratorTask>(
     "orchestrator-task",
     { nodes, edges, scope, selectedNodeIds },
   );
 
-  // Poll via Trigger.dev REST API until complete
+  // Poll until complete
   let output: Record<string, unknown> | null = null;
   let attempts = 0;
-
   while (attempts < 60) {
     await new Promise((r) => setTimeout(r, 2000));
-    const run = await runs.retrieve(handle.id);
-
-    if (run.status === "COMPLETED") {
-      output = run.output as Record<string, unknown>;
+    const runStatus = await runs.retrieve(handle.id);
+    if (runStatus.status === "COMPLETED") {
+      output = runStatus.output as Record<string, unknown>;
       break;
     }
     if (
       ["FAILED", "CRASHED", "CANCELED", "TIMED_OUT", "SYSTEM_FAILURE"].includes(
-        run.status,
+        runStatus.status,
       )
     ) {
       break;
@@ -86,7 +132,7 @@ export async function POST(
 
   if (!output) {
     await prisma.workflowRun.update({
-      where: { id: run.id },
+      where: { id: runId },
       data: { status: "failed" },
     });
     return NextResponse.json(
@@ -108,10 +154,10 @@ export async function POST(
     overallStatus: string;
   };
 
-  // Persist all node run records
+  // Append NodeRun records for this layer to the (possibly shared) WorkflowRun
   await prisma.nodeRun.createMany({
     data: nodeRunResults.map((nr) => ({
-      workflowRunId: run.id,
+      workflowRunId: runId,
       nodeId: nr.nodeId,
       nodeType: nr.nodeType,
       status: nr.status,
@@ -124,18 +170,21 @@ export async function POST(
     })),
   });
 
-  // Update overall run status and total duration
-  const totalDuration = nodeRunResults.reduce(
-    (acc, nr) => acc + nr.duration,
-    0,
-  );
+  // Update WorkflowRun: always set latest status; increment duration so
+  // multi-layer runs accumulate correctly instead of overwriting.
+  const layerDuration = nodeRunResults.reduce((acc, nr) => acc + nr.duration, 0);
   await prisma.workflowRun.update({
-    where: { id: run.id },
-    data: { status: overallStatus, duration: totalDuration },
+    where: { id: runId },
+    data: {
+      status: overallStatus,
+      duration: existingRunId
+        ? { increment: layerDuration }
+        : layerDuration,
+    },
   });
 
   return NextResponse.json({
-    runId: run.id,
+    runId,
     workflowId,
     status: overallStatus,
     nodeOutputs,

@@ -27,9 +27,12 @@ export const orchestratorTask = task({
   run: async (payload: OrchestratorPayload) => {
     const { nodes, edges, scope, selectedNodeIds } = payload
 
-    const targetNodes = scope === 'full'
-      ? nodes
-      : nodes.filter((n) => selectedNodeIds?.includes(n.id))
+    // selectedNodeIds always wins when present — it specifies exactly which nodes
+    // this call should execute (e.g. a single layer in a multi-layer run).
+    // Only fall back to the full graph when no explicit selection is given.
+    const targetNodes = selectedNodeIds?.length
+      ? nodes.filter((n) => selectedNodeIds.includes(n.id))
+      : nodes
 
     const layers = topologicalSort(targetNodes, edges)
     const nodeOutputs = new Map<string, unknown>()

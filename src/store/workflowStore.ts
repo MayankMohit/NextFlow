@@ -80,8 +80,9 @@ export function checkIsValidConnection(connection: Connection, nodes: Node[], ed
   if (outputType === 'image' && (TEXT_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle))) return false
   if (outputType === 'video' && (IMAGE_HANDLES.has(targetHandle) || TEXT_HANDLES.has(targetHandle))) return false
   if (outputType === 'text' && (IMAGE_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle))) return false
-  // Block if target handle is already occupied by another edge
-  if (edges.some(e => e.target === connection.target && e.targetHandle === connection.targetHandle)) return false
+  // Block if target handle is already occupied — except 'images' which accepts multiple sources
+  if (connection.targetHandle !== 'images' &&
+      edges.some(e => e.target === connection.target && e.targetHandle === connection.targetHandle)) return false
   return true
 }
 
@@ -202,14 +203,15 @@ async function runLayer(
   allEdges: Edge[],
   workflowId: string,
   scope: 'full' | 'partial' | 'single',
+  passthroughNodeIds?: string[],
+  existingRunId?: string,
 ): Promise<{
   ok: boolean
+  runId?: string
   nodeOutputs: Record<string, unknown>
   nodeRuns: Array<{ nodeId: string; status: string; error?: string }>
   newWorkflowId?: string
 }> {
-  // Send the full graph but tell the server which nodes to actually execute.
-  // The orchestrator already understands selectedNodeIds.
   const res = await fetch(`/api/workflow/${workflowId}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -218,21 +220,20 @@ async function runLayer(
       edges: allEdges,
       scope,
       selectedNodeIds: layerNodeIds,
+      passthroughNodeIds,
+      existingRunId,
     }),
   })
 
   if (!res.ok) {
-    try {
-      const err = await res.json()
-      return { ok: false, nodeOutputs: {}, nodeRuns: [], newWorkflowId: undefined }
-    } catch {
-      return { ok: false, nodeOutputs: {}, nodeRuns: [] }
-    }
+    try { await res.json() } catch { /**/ }
+    return { ok: false, nodeOutputs: {}, nodeRuns: [] }
   }
 
   const data = await res.json()
   return {
     ok: true,
+    runId: data.runId,
     nodeOutputs: data.nodeOutputs ?? {},
     nodeRuns: data.nodeRuns ?? [],
     newWorkflowId: data.workflowId,
@@ -525,17 +526,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // runNode — runs the clicked node, then chains ALL downstream nodes
-  // sequentially layer by layer, updating UI after each layer completes.
+  // runNode — runs the clicked node plus all downstream nodes in one API call.
+  // One call = one WorkflowRun record, no duplicate "partial" history entries.
   // ---------------------------------------------------------------------------
   runNode: async (startNodeId: string) => {
     const { nodes, edges, updateNodeData, fetchRuns, addAsset, canNodeRun } = get()
     let { workflowId } = get()
 
-    // Guard: already running
     if (get().runningNodeIds.has(startNodeId)) return
 
-    // Guard: upstream not ready
     if (!canNodeRun(startNodeId)) {
       updateNodeData(startNodeId, {
         status: 'error',
@@ -544,80 +543,88 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       return
     }
 
-    // Build the full chain: start node + all downstream nodes, sorted into layers
-    const chainIds = reachableFrom([startNodeId], edges, nodes)
-    const chainNodes = nodes.filter(n => chainIds.includes(n.id))
-    const layers = topoLayers(chainNodes, edges)
+    const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
 
-    // Mark the entire chain as "queued" visually (idle, not running yet)
-    // Only the first layer gets marked running immediately
-    for (const layer of layers) {
-      for (const n of layer) {
-        updateNodeData(n.id, { status: 'idle', error: undefined })
-      }
+    // All nodes reachable from startNode (inclusive)
+    const chainIds = reachableFrom([startNodeId], edges, nodes)
+
+    // Passthrough nodes need no server call — mark them complete immediately
+    const passthroughIds = chainIds.filter(id => {
+      const n = nodes.find(n => n.id === id)
+      return n && PASSTHROUGH.has(n.type ?? '')
+    })
+    const executableIds = chainIds.filter(id => !passthroughIds.includes(id))
+
+    for (const id of passthroughIds) {
+      updateNodeData(id, { status: 'success' })
+      set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
     }
 
+    if (executableIds.length === 0) return
+
+    // Scope: compare executables that ran against ALL executables in the workflow.
+    // Passthrough nodes (text/upload) don't need server execution so they don't
+    // affect whether this was a "full" run.
+    const allWorkflowExecutables = nodes
+      .filter(n => !PASSTHROUGH.has(n.type ?? ''))
+      .map(n => n.id)
+    const scope: 'full' | 'partial' | 'single' =
+      allWorkflowExecutables.every(id => executableIds.includes(id)) ? 'full'
+      : executableIds.length === 1 ? 'single'
+      : 'partial'
+
+    // Sort executable chain into layers for per-layer glow animation
+    const execChainNodes = nodes.filter(n => executableIds.includes(n.id))
+    const execLayers = topoLayers(execChainNodes, edges)
+
+    // Mark all executable nodes idle so non-current layers don't glow
+    for (const id of executableIds) updateNodeData(id, { status: 'idle', error: undefined })
+
+    // Shared across all layer calls — first call creates the WorkflowRun, rest append to it
+    let sharedRunId: string | undefined
+
     try {
-      for (let li = 0; li < layers.length; li++) {
-        const layer = layers[li]
-        const layerIds = layer.map(n => n.id)
+      for (let li = 0; li < execLayers.length; li++) {
+        const layerIds = execLayers[li].map(n => n.id)
 
-        // Skip passthrough-only layers (text/upload nodes) — just mark complete
-        const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
-        const executableIds = layerIds.filter(id => {
-          const n = nodes.find(n => n.id === id)
-          return n && !PASSTHROUGH.has(n.type ?? '')
-        })
-        const passthroughIds = layerIds.filter(id => !executableIds.includes(id))
+        // Only this layer glows
+        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...layerIds]) }))
+        for (const id of layerIds) updateNodeData(id, { status: 'running', error: undefined })
 
-        // Mark passthrough nodes as complete immediately
-        for (const id of passthroughIds) {
-          updateNodeData(id, { status: 'success' })
-          set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
-        }
+        // Passthrough NodeRuns are only sent on the first API call (they create the run)
+        const isFirst = sharedRunId === undefined
+        // Use fresh nodes from store so each layer sees lastOutput set by previous layers
+        const result = await runLayer(
+          layerIds, get().nodes, edges, workflowId, scope,
+          isFirst ? passthroughIds : undefined,
+          sharedRunId,
+        )
 
-        if (executableIds.length === 0) continue
-
-        // Mark this layer as running
-        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...executableIds]) }))
-        for (const id of executableIds) updateNodeData(id, { status: 'running', error: undefined })
-
-        const scope = li === 0 && layers.length === 1 ? 'single' : 'partial'
-        const result = await runLayer(executableIds, nodes, edges, workflowId, scope)
-
-        // Update workflowId if it was just created
+        if (result.runId) sharedRunId = result.runId
         if (result.newWorkflowId && workflowId === 'new') {
           workflowId = result.newWorkflowId
           set({ workflowId: result.newWorkflowId })
           window.history.replaceState({}, '', `/workflow/${result.newWorkflowId}`)
         }
 
-        // Remove from running set
+        // Stop glowing this layer
         set(s => {
           const next = new Set(s.runningNodeIds)
-          executableIds.forEach(id => next.delete(id))
+          layerIds.forEach(id => next.delete(id))
           return { runningNodeIds: next }
         })
 
         if (!result.ok) {
-          // Mark all remaining nodes in this layer and beyond as failed
-          for (const id of executableIds) {
-            updateNodeData(id, { status: 'failed', error: 'Run failed' })
-          }
-          // Mark all subsequent layers as skipped/idle
-          for (let si = li + 1; si < layers.length; si++) {
-            for (const n of layers[si]) {
-              updateNodeData(n.id, { status: 'idle' })
-            }
-          }
+          for (const id of layerIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
+          for (let si = li + 1; si < execLayers.length; si++)
+            for (const n of execLayers[si]) updateNodeData(n.id, { status: 'idle' })
           return
         }
 
-        // Apply results
-        let layerHadFailure = false
+        let hadFailure = false
         for (const nr of result.nodeRuns) {
           const output = result.nodeOutputs[nr.nodeId]
-          const node = nodes.find(n => n.id === nr.nodeId)
+          const node = get().nodes.find(n => n.id === nr.nodeId)
           updateNodeData(nr.nodeId, {
             status: nr.status,
             result: typeof output === 'string' ? output : undefined,
@@ -628,79 +635,57 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, nr.nodeId]) }))
             if (node) maybeAddAsset(nr.nodeId, node.type, output, node.data as Record<string, unknown>, addAsset)
           } else {
-            layerHadFailure = true
+            hadFailure = true
           }
         }
 
-        // If any node in this layer failed, stop chaining
-        if (layerHadFailure) {
-          for (let si = li + 1; si < layers.length; si++) {
-            for (const n of layers[si]) {
-              updateNodeData(n.id, {
-                status: 'idle',
-                error: 'Skipped — a previous node failed.',
-              })
-            }
-          }
+        if (hadFailure) {
+          for (let si = li + 1; si < execLayers.length; si++)
+            for (const n of execLayers[si])
+              updateNodeData(n.id, { status: 'idle', error: 'Skipped — a previous node failed.' })
           return
         }
       }
 
       await fetchRuns()
     } catch (err) {
-      // Clean up any nodes still marked as running
-      const currentRunning = get().runningNodeIds
+      for (const id of executableIds) updateNodeData(id, { status: 'failed', error: String(err) })
+    } finally {
       set(s => {
         const next = new Set(s.runningNodeIds)
-        chainIds.forEach(id => next.delete(id))
+        executableIds.forEach(id => next.delete(id))
         return { runningNodeIds: next }
       })
-      for (const id of chainIds) {
-        if (currentRunning.has(id)) {
-          updateNodeData(id, { status: 'failed', error: `Unexpected error: ${String(err)}` })
-        }
-      }
     }
   },
 
   // ---------------------------------------------------------------------------
-  // runNodes — runs a selected group of nodes in topological layer order.
-  // Only nodes within the selection are executed; downstream nodes outside
-  // the selection are NOT automatically chained.
+  // runNodes — runs a selected group in one API call (one WorkflowRun record).
   // ---------------------------------------------------------------------------
   runNodes: async (nodeIds: string[]) => {
-    const { nodes, edges, updateNodeData, fetchRuns, addAsset, canNodeRun } = get()
+    const { nodes, edges, updateNodeData, fetchRuns, addAsset } = get()
     let { workflowId } = get()
 
     if (nodeIds.length === 0) return
 
-    // Filter to only nodes that exist
-    const validIds = nodeIds.filter(id => nodes.find(n => n.id === id))
-    if (validIds.length === 0) return
+    const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
+    const selectionSet = new Set(nodeIds.filter(id => nodes.find(n => n.id === id)))
+    if (selectionSet.size === 0) return
 
-    // Split into runnable vs blocked (a node is blocked if its upstream
-    // within the selection hasn't run yet — we'll resolve this via layers,
-    // so just block nodes whose upstream is entirely outside the selection
-    // AND not yet completed)
-    const selectionSet = new Set(validIds)
+    // Block nodes whose external (outside selection) executable parents haven't completed
     const blocked: string[] = []
     const toRun: string[] = []
 
-    for (const id of validIds) {
-      const inEdges = edges.filter(e => e.target === id)
-      const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
-      const externalUnfinishedParents = inEdges.filter(e => {
-        if (selectionSet.has(e.source)) return false  // handled within selection
-        if (get().completedNodeIds.has(e.source)) return false
-        const srcNode = nodes.find(n => n.id === e.source)
-        if (srcNode && PASSTHROUGH.has(srcNode.type ?? '')) return false
-        return true
-      })
-      if (externalUnfinishedParents.length > 0) {
-        blocked.push(id)
-      } else {
-        toRun.push(id)
-      }
+    for (const id of selectionSet) {
+      const externalUnfinished = edges
+        .filter(e => e.target === id && !selectionSet.has(e.source))
+        .filter(e => {
+          if (get().completedNodeIds.has(e.source)) return false
+          const src = nodes.find(n => n.id === e.source)
+          return src ? !PASSTHROUGH.has(src.type ?? '') : false
+        })
+      if (externalUnfinished.length > 0) blocked.push(id)
+      else toRun.push(id)
     }
 
     for (const id of blocked) {
@@ -712,44 +697,57 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
     if (toRun.length === 0) return
 
-    // Skip any already running
-    const alreadyRunning = toRun.filter(id => get().runningNodeIds.has(id))
     const executable = toRun.filter(id => !get().runningNodeIds.has(id))
     if (executable.length === 0) return
 
-    // Sort the executable selection into topological layers
-    const selectionNodes = nodes.filter(n => executable.includes(n.id))
-    // Only consider edges between nodes in our selection for layer ordering
-    const selectionEdges = edges.filter(e => selectionSet.has(e.source) && selectionSet.has(e.target))
-    const layers = topoLayers(selectionNodes, selectionEdges)
+    // Passthrough nodes within selection — mark complete immediately
+    const passthroughIds = executable.filter(id => {
+      const n = nodes.find(n => n.id === id)
+      return n && PASSTHROUGH.has(n.type ?? '')
+    })
+    const executableIds = executable.filter(id => !passthroughIds.includes(id))
 
-    // Mark everything idle first
-    for (const id of executable) updateNodeData(id, { status: 'idle', error: undefined })
+    for (const id of passthroughIds) {
+      updateNodeData(id, { status: 'success' })
+      set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
+    }
+
+    if (executableIds.length === 0) return
+
+    // Scope: compare executables that ran against ALL executables in the workflow
+    const allWorkflowExecutables = nodes
+      .filter(n => !PASSTHROUGH.has(n.type ?? ''))
+      .map(n => n.id)
+    const scope: 'full' | 'partial' | 'single' =
+      allWorkflowExecutables.every(id => executableIds.includes(id)) ? 'full'
+      : executableIds.length === 1 ? 'single'
+      : 'partial'
+
+    // Sort into layers for per-layer glow
+    const execSelNodes = nodes.filter(n => executableIds.includes(n.id))
+    const execSelEdges = edges.filter(e => executableIds.includes(e.source) && executableIds.includes(e.target))
+    const execSelLayers = topoLayers(execSelNodes, execSelEdges)
+
+    for (const id of executableIds) updateNodeData(id, { status: 'idle', error: undefined })
+
+    let sharedRunId: string | undefined
 
     try {
-      for (let li = 0; li < layers.length; li++) {
-        const layer = layers[li]
-        const layerIds = layer.map(n => n.id)
+      for (let li = 0; li < execSelLayers.length; li++) {
+        const layerIds = execSelLayers[li].map(n => n.id)
 
-        const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
-        const executableIds = layerIds.filter(id => {
-          const n = nodes.find(n => n.id === id)
-          return n && !PASSTHROUGH.has(n.type ?? '')
-        })
-        const passthroughIds = layerIds.filter(id => !executableIds.includes(id))
+        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...layerIds]) }))
+        for (const id of layerIds) updateNodeData(id, { status: 'running', error: undefined })
 
-        for (const id of passthroughIds) {
-          updateNodeData(id, { status: 'success' })
-          set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
-        }
+        const isFirst = sharedRunId === undefined
+        // Use fresh nodes from store so each layer sees lastOutput set by previous layers
+        const result = await runLayer(
+          layerIds, get().nodes, edges, workflowId, scope,
+          isFirst ? passthroughIds : undefined,
+          sharedRunId,
+        )
 
-        if (executableIds.length === 0) continue
-
-        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...executableIds]) }))
-        for (const id of executableIds) updateNodeData(id, { status: 'running', error: undefined })
-
-        const result = await runLayer(executableIds, nodes, edges, workflowId, 'partial')
-
+        if (result.runId) sharedRunId = result.runId
         if (result.newWorkflowId && workflowId === 'new') {
           workflowId = result.newWorkflowId
           set({ workflowId: result.newWorkflowId })
@@ -758,22 +756,21 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
         set(s => {
           const next = new Set(s.runningNodeIds)
-          executableIds.forEach(id => next.delete(id))
+          layerIds.forEach(id => next.delete(id))
           return { runningNodeIds: next }
         })
 
         if (!result.ok) {
-          for (const id of executableIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
-          for (let si = li + 1; si < layers.length; si++) {
-            for (const n of layers[si]) updateNodeData(n.id, { status: 'idle' })
-          }
+          for (const id of layerIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
+          for (let si = li + 1; si < execSelLayers.length; si++)
+            for (const n of execSelLayers[si]) updateNodeData(n.id, { status: 'idle' })
           return
         }
 
-        let layerHadFailure = false
+        let hadFailure = false
         for (const nr of result.nodeRuns) {
           const output = result.nodeOutputs[nr.nodeId]
-          const node = nodes.find(n => n.id === nr.nodeId)
+          const node = get().nodes.find(n => n.id === nr.nodeId)
           updateNodeData(nr.nodeId, {
             status: nr.status,
             result: typeof output === 'string' ? output : undefined,
@@ -784,33 +781,27 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
             set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, nr.nodeId]) }))
             if (node) maybeAddAsset(nr.nodeId, node.type, output, node.data as Record<string, unknown>, addAsset)
           } else {
-            layerHadFailure = true
+            hadFailure = true
           }
         }
 
-        if (layerHadFailure) {
-          for (let si = li + 1; si < layers.length; si++) {
-            for (const n of layers[si]) {
+        if (hadFailure) {
+          for (let si = li + 1; si < execSelLayers.length; si++)
+            for (const n of execSelLayers[si])
               updateNodeData(n.id, { status: 'idle', error: 'Skipped — a previous node failed.' })
-            }
-          }
           return
         }
       }
 
       await fetchRuns()
     } catch (err) {
-      const currentRunning = get().runningNodeIds
+      for (const id of executableIds) updateNodeData(id, { status: 'failed', error: String(err) })
+    } finally {
       set(s => {
         const next = new Set(s.runningNodeIds)
-        executable.forEach(id => next.delete(id))
+        executableIds.forEach(id => next.delete(id))
         return { runningNodeIds: next }
       })
-      for (const id of executable) {
-        if (currentRunning.has(id)) {
-          updateNodeData(id, { status: 'failed', error: `Unexpected error: ${String(err)}` })
-        }
-      }
     }
   },
 

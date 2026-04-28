@@ -39,6 +39,7 @@ export const nodeExecutorTask = task({
       })
       if (!res.ok) throw new Error(typeof res.error === 'string' ? res.error : 'LLM task failed')
       return { nodeId, result: res.output?.result }
+      
     }
 
     if (nodeType === 'cropImageNode') {
