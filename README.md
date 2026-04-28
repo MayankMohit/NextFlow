@@ -249,6 +249,6 @@ Open [http://localhost:3000](http://localhost:3000).
 | Workflow save/load to database | ✅ |
 | Workflow history persistence to database | ✅ |
 | Workflow export/import as JSON | ✅ |
-| Deployed on Vercel with environment variables |  |
+| Deployed on Vercel with environment variables | ✅ |
 
 ---

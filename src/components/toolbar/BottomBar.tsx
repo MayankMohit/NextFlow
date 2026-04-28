@@ -62,8 +62,8 @@ function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: s
   const isDark = theme === 'dark'
   const panel = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
   const card = isDark ? 'bg-[#141414] border-[#2a2a2a] hover:bg-[#000000]' : 'bg-[#f8f8f8] border-[#e0e0e0] hover:bg-[#f0f0f0]'
-  const textMain = isDark ? 'text-white' : 'text-[#111]'
-  const textMuted = isDark ? 'text-[#666]' : 'text-[#888]'
+  const textMain = isDark ? 'text-white' : 'text-black'
+  const textMuted = isDark ? 'text-[#888]' : 'text-[#777]'
 
   return createPortal(
     <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/60" onClick={onClose}>
@@ -72,18 +72,18 @@ function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: s
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <span className={`text-sm font-semibold ${textMain}`}>Workflow Presets</span>
-          <button onClick={onClose} className={textMuted}><X size={13} /></button>
+          <button onClick={onClose} className={`${isDark ? 'text-white' : 'text-black'}`}><X size={18} /></button>
         </div>
         <div className="flex flex-col gap-2">
           {PRESETS.map(preset => (
             <div key={preset.id} className={`group flex items-center gap-3 p-3 rounded-lg border transition-all ${card}`}>
               <span className="text-2xl shrink-0">{preset.icon}</span>
               <div className="flex-1 min-w-0">
-                <p className={`text-xs font-medium ${textMain}`}>{preset.name}</p>
-                <p className={`text-xs mt-0.5 leading-relaxed ${textMuted}`}>{preset.description}</p>
+                <p className={`text-sm font-medium ${textMain}`}>{preset.name}</p>
+                <p className={`text-sm mt-0.5 leading-relaxed ${textMuted}`}>{preset.description}</p>
               </div>
               <button onClick={() => { onLoad(preset.id); onClose() }}
-                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-black-600 text-white text-xs transition-colors">
+                className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-800 text-white text-sm transition-colors">
                 Load<ChevronRight size={11} />
               </button>
             </div>
@@ -123,11 +123,10 @@ function CanvasTools() {
   const nodePickerRef = useRef<HTMLDivElement>(null)
 
   const isDark = theme === 'dark'
-  const toolbar = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
-  const btn = isDark ? 'text-[#888] hover:text-white hover:bg-[#2a2a2a]' : 'text-[#888] hover:text-[#111] hover:bg-[#f0f0f0]'
+  const toolbar = isDark ? 'bg-[#202020] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
+  const btn = isDark ? 'text-white hover:bg-[#2a2a2a]' : 'text-black hover:bg-[#f0f0f0]'
   const picker = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
-  const pickerItem = isDark ? 'text-white hover:bg-[#2a2a2a]' : 'text-[#111] hover:bg-[#f0f0f0]'
-  const divider = isDark ? 'bg-[#2a2a2a]' : 'bg-[#e0e0e0]'
+  const pickerItem = isDark ? 'text-white hover:bg-[#2a2a2a]' : 'text-black hover:bg-[#f0f0f0]'
 
   useEffect(() => {
     if (!showNodePicker) return
@@ -152,24 +151,24 @@ function CanvasTools() {
 
   const toolBtn = (tool: 'select' | 'pan' | 'cut', icon: React.ReactNode, title: string) => (
     <button onClick={() => setCanvasTool(tool)} title={title}
-      className={`p-1.5 rounded transition-colors ${canvasTool === tool ? 'bg-violet-600 text-white' : btn}`}>
+      className={`p-3 rounded-lg transition-colors ${canvasTool === tool ? isDark ? 'bg-[#404040] text-white' : 'bg-[#e5e5e5] text-black' : btn}`}>
       {icon}
     </button>
   )
 
   return (
     <>
-      <div className={`flex items-center gap-1 border rounded-lg px-1.5 py-1 relative ${toolbar}`}>
+      <div className={`flex items-center gap-2 border rounded-xl px-0.75 py-0.75 relative ${toolbar}`}>
         <div ref={nodePickerRef} className="relative">
           <button onClick={() => setShowNodePicker(v => !v)} title="Add node"
-            className={`p-1.5 rounded transition-colors ${btn}`}>
-            <Plus size={14} />
+            className={`p-3 rounded transition-colors ${btn}`}>
+            <Plus size={20} />
           </button>
           {showNodePicker && (
             <div className={`absolute bottom-full mb-2 left-1/2 -translate-x-1/2 border rounded-lg py-1 w-44 shadow-xl ${picker}`}>
               {NODE_TYPES.map(({ type, label }) => (
                 <button key={type} onClick={() => addNodeAtCenter(type)}
-                  className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${pickerItem}`}>
+                  className={`w-full text-left px-2 py-2 text-sm transition-colors ${pickerItem}`}>
                   {label}
                 </button>
               ))}
@@ -177,15 +176,13 @@ function CanvasTools() {
           )}
         </div>
 
-        <div className={`w-px h-4 ${divider}`} />
-        {toolBtn('select', <MousePointer2 size={14} />, 'Draw selection')}
-        {toolBtn('pan', <Hand size={14} />, 'Pan mode')}
-        {toolBtn('cut', <Scissors size={14} />, 'Cut connections')}
-        <div className={`w-px h-4 ${divider}`} />
+        {toolBtn('select', <MousePointer2 size={20} />, 'Draw selection')}
+        {toolBtn('pan', <Hand size={20} />, 'Pan mode')}
+        {toolBtn('cut', <Scissors size={20} />, 'Cut connections')}
 
         <button onClick={() => setShowPresets(v => !v)} title="Workflow presets"
-          className={`p-1.5 rounded transition-colors ${btn}`}>
-          <LayoutGrid size={14} />
+          className={`p-3 rounded transition-colors ${btn}`}>
+          <LayoutGrid size={20} />
         </button>
       </div>
 
@@ -205,40 +202,39 @@ export default function BottomBar() {
   const { fitView } = useReactFlow()
 
   const isDark = theme === 'dark'
-  const panel = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
-  const btn = isDark ? 'text-[#888] hover:text-white hover:bg-[#2a2a2a]' : 'text-[#888] hover:text-[#111] hover:bg-[#f0f0f0]'
-  const scBtn = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] hover:border-[#444] text-[#888] hover:text-white' : 'bg-white border-[#e0e0e0] hover:border-[#bbb] text-[#888] hover:text-[#111]'
+  const btn = isDark ? 'text-white bg-[#2a2a2a] hover:bg-[#333]' : 'text-black bg-white hover:bg-[#f0f0f0]'
+  const scBtn = isDark ? 'bg-[#2a2a2a] text-white' : 'bg-white text-black'
 
   return (
     <>
       {/* Bottom Left */}
       <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 pointer-events-auto">
-        <div className={`flex items-center gap-1 border rounded-lg px-1.5 py-1 ${panel}`}>
+        <div className={`flex items-center gap-2 rounded-lg px-1.5 py-1`}>
           <button onClick={undo} disabled={past.length === 0} title="Undo (Ctrl+Z)"
-            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
-            <Undo2 size={14} />
+            className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
+            <Undo2 size={20} />
           </button>
           <button onClick={redo} disabled={future.length === 0} title="Redo (Ctrl+Shift+Z)"
-            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
-            <Redo2 size={14} />
+            className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
+            <Redo2 size={20} />
           </button>
         </div>
         <button onClick={() => setShowShortcuts(true)}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 border rounded-lg text-xs transition-colors ${scBtn}`}>
-          <Keyboard size={13} />
+          className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${scBtn}`}>
+          <Keyboard size={18} />
           <span className="hidden sm:block">Shortcuts</span>
         </button>
       </div>
 
       {/* Bottom Center — fixed so panels opening don't shift it */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+      <div className="fixed bottom-4 left-1/2  z-20 pointer-events-auto">
         <CanvasTools />
       </div>
 
       {/* Bottom Right */}
-      <div className="absolute bottom-4 right-4 z-20 pointer-events-auto">
+      <div className="absolute bottom-2 right-4 z-20 pointer-events-auto">
         <button onClick={() => fitView({ padding: 0.2, duration: 400 })} title="Fit view"
-          className={`p-1.5 border rounded-lg transition-colors ${scBtn}`}>
+          className={`p-1.5  rounded-lg transition-colors ${scBtn}`}>
           <Maximize2 size={14} />
         </button>
       </div>

@@ -27,12 +27,12 @@ function LogoDropdown() {
   const projectsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDark = theme === 'dark'
-  const btn = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] hover:border-[#444] text-white' : 'bg-white border-[#e0e0e0] hover:border-[#bbb] text-[#111]'
-  const panel = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
-  const item = isDark ? 'text-white hover:bg-[#2a2a2a]' : 'text-[#111] hover:bg-[#f0f0f0]'
+  const btn = isDark ? 'bg-[#1c1c1c] hover:bg-[#3a3a3a] text-white' : 'bg-white hover:bg-[#f0f0f0] text-[#111]'
+  const panel = isDark ? 'bg-[#1c1c1c]' : 'bg-white border-[#e0e0e0]'
+  const item = isDark ? 'text-white hover:bg-[#141414]' : 'text-[#111] hover:bg-[#f0f0f0]'
   const muted = isDark ? 'text-[#666]' : 'text-[#aaa]'
   const divider = isDark ? 'bg-[#2a2a2a]' : 'bg-[#e0e0e0]'
-  const chevron = isDark ? 'text-[#555]' : 'text-[#bbb]'
+  const chevron = isDark ? 'text-[#000000]' : 'text-[#ffffff]'
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
 
@@ -61,44 +61,44 @@ function LogoDropdown() {
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen(v => !v)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-colors ${btn}`}>
-        <span className="text-xs font-semibold">NextFlow</span>
+      <button onClick={() => setOpen(v => !v)} className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md transition-colors ${btn}`}>
+        <span className="text-lg font-black">NF</span>
         <ChevronDown size={12} className={`${muted} transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className={`absolute top-full left-0 mt-1 w-52 border rounded-lg shadow-xl z-50 py-1 overflow-visible ${panel}`}>
+        <div className={`absolute top-full -left-3 mt-4 w-65  rounded-xl shadow-xl z-50 py-3 px-2 text-sm overflow-visible ${panel}`}>
           <button onClick={() => { saveWorkflow(); setOpen(false) }} disabled={isSaving}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${item}`}>
-            <Save size={13} className={muted} />{isSaving ? 'Saving...' : 'Save workflow'}
+            className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
+            <Save size={15} />{isSaving ? 'Saving...' : 'Save workflow'}
           </button>
           <button onClick={() => { exportWorkflow(); setOpen(false) }}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${item}`}>
-            <Download size={13} className={muted} />Export as JSON
+            className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
+            <Download size={15}  />Export as JSON
           </button>
           <button onClick={() => importRef.current?.click()}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${item}`}>
-            <Upload size={13} className={muted} />Import JSON
+            className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
+            <Upload size={15} />Import JSON
           </button>
           <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImport} />
           <button onClick={() => { loadSampleWorkflow(); setOpen(false) }}
-            className={`w-full flex items-center gap-2 px-3 py-2 text-violet-400 text-xs transition-colors ${isDark ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f0f0f0]'}`}>
-            <Layers size={13} />Load Sample Workflow
+            className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
+            <Layers size={15} />Load Sample Workflow
           </button>
 
           <div className={`h-px my-1 ${divider}`} />
 
           <div className="relative" onMouseEnter={handleProjectsEnter} onMouseLeave={handleProjectsLeave}>
-            <button className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${item}`}>
-              <FolderOpen size={13} className={muted} />
+            <button className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-lg ${item}`}>
+              <FolderOpen size={15} />
               <span className="flex-1 text-left">Projects</span>
               <ChevronDown size={11} className={`${chevron} -rotate-90`} />
             </button>
             {showProjects && (
-              <div className={`absolute left-full top-0 w-56 border rounded-lg shadow-xl py-1 max-h-64 overflow-y-auto z-60 ${panel}`}
+              <div className={`absolute left-[calc(100%+8px)] top-0  w-65 rounded-xl shadow-xl py-2 px-2 max-h-64 overflow-y-auto z-60 ${panel}`}
                 style={{ marginLeft: '4px' }} onMouseEnter={handleProjectsEnter} onMouseLeave={handleProjectsLeave}>
                 <button onClick={() => { router.push('/workflow/new'); setOpen(false); setShowProjects(false) }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-violet-400 text-xs transition-colors ${isDark ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f0f0f0]'}`}>
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg ${item}`}>
                   + New workflow
                 </button>
                 <div className={`h-px my-1 ${divider}`} />
@@ -107,7 +107,7 @@ function LogoDropdown() {
                 ) : projects.map(p => (
                   <div key={p.id} className="group relative">
                     {confirmDeleteId === p.id ? (
-                      <div className={`flex items-center gap-1 px-3 py-2 ${isDark ? 'bg-[#2a2a2a]' : 'bg-[#f0f0f0]'}`}>
+                      <div className={`flex items-center gap-1 px-3 py-2 rounded-lg ${item}`}>
                         <span className={`text-xs flex-1 ${isDark ? 'text-[#aaa]' : 'text-[#555]'}`}>Delete &ldquo;{p.name}&rdquo;?</span>
                         <button onClick={() => { deleteProject(p.id); setConfirmDeleteId(null) }}
                           className="text-xs text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded hover:bg-red-900/30 transition-colors">Yes</button>
@@ -115,7 +115,7 @@ function LogoDropdown() {
                           className={`text-xs px-1.5 py-0.5 rounded transition-colors ${isDark ? 'text-[#666] hover:text-white hover:bg-[#333]' : 'text-[#aaa] hover:text-[#111] hover:bg-[#e0e0e0]'}`}>No</button>
                       </div>
                     ) : (
-                      <div className={`flex items-center transition-colors ${isDark ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f0f0f0]'}`}>
+                      <div className={`flex items-center transition-colors rounded-lg ${item}`}>
                         <button onClick={() => { router.push(`/workflow/${p.id}`); setOpen(false); setShowProjects(false) }}
                           className={`flex items-center gap-2 px-3 py-2 text-xs flex-1 min-w-0 ${isDark ? 'text-white' : 'text-[#111]'}`}>
                           <ExternalLink size={11} className={`${muted} shrink-0`} />
@@ -142,24 +142,48 @@ function ProjectName() {
   const { workflowName, setWorkflowName, theme } = useWorkflowStore();
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const isDark = theme === 'dark'
+  const isDark = theme === 'dark';
 
   const start = () => { setEditing(true); setTimeout(() => inputRef.current?.select(), 10) }
-  const commit = () => setEditing(false)
+  
+  const commit = () => {
+    if (workflowName.trim() === '') setWorkflowName('Untitled');
+    setEditing(false);
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (value.length > 40) return;
+    const words = value.trim().split(/\s+/);
+    if (words.filter(Boolean).length > 4) return;
+    setWorkflowName(value);
+  }
 
   if (editing) {
     return (
-      <input ref={inputRef} value={workflowName} onChange={(e) => setWorkflowName(e.target.value)}
-        onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
-        className={`bg-transparent text-xs border-b border-violet-500 outline-none px-1 min-w-16 max-w-40 ${isDark ? 'text-white' : 'text-[#111]'}`}
-        autoFocus />
+      <input
+        ref={inputRef}
+        value={workflowName}
+        onChange={handleChange}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
+        className={`bg-transparent text-sm outline-none border-b px-1 min-w-16 max-w-80 border-gray-600
+          ${isDark ? 'text-white' : 'text-[#111]'}`}
+        autoFocus
+      />
     )
   }
 
   return (
-    <button onClick={start}
-      className={`text-xs transition-colors max-w-40 truncate ${isDark ? 'text-[#888] hover:text-white' : 'text-[#999] hover:text-[#111]'}`}
-      title="Click to rename">
+    <button
+      onClick={start}
+      className={`text-sm max-w-60 truncate transition-colors
+        ${workflowName === 'Untitled'
+          ? isDark ? 'text-[#666] hover:text-white' : 'text-[#aaa] hover:text-[#111]'
+          : isDark ? 'text-white hover:text-[#ccc]' : 'text-[#111] hover:text-[#444]'
+        }`}
+      title="Click to rename"
+    >
       {workflowName}
     </button>
   )
@@ -170,9 +194,9 @@ function ThemeToggle() {
   const isDark = theme === 'dark'
   return (
     <button onClick={toggleTheme}
-      className={`p-1.5 rounded-lg border transition-colors ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] hover:border-[#444] text-[#888] hover:text-white' : 'bg-white border-[#e0e0e0] hover:border-[#bbb] text-[#666] hover:text-[#111]'}`}
+      className={`p-2 rounded-xl border transition-colors ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]  text-white hover:text-white' : 'bg-white border-[#e0e0e0] text-black hover:text-[#111]'}`}
       title={isDark ? 'Switch to light' : 'Switch to dark'}>
-      {isDark ? <Sun size={14} /> : <Moon size={14} />}
+      {isDark ? <Sun size={16} /> : <Moon size={16} />}
     </button>
   )
 }
@@ -181,12 +205,12 @@ function PanelToggles() {
   const { rightPanel, setRightPanel, theme } = useWorkflowStore();
   const isDark = theme === 'dark'
   const active = isDark ? 'bg-[#2a2a2a] text-white border-[#444]' : 'bg-[#e8e8e8] text-[#111] border-[#ccc]'
-  const inactive = isDark ? 'bg-[#1c1c1c] text-[#888] border-[#2a2a2a] hover:text-white hover:border-[#444]' : 'bg-white text-[#888] border-[#e0e0e0] hover:text-[#111] hover:border-[#bbb]'
+  const inactive = isDark ? 'bg-[#1c1c1c] text-white border-[#2a2a2a]' : 'bg-white text-black border-[#e0e0e0]'
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-2">
       {(['assets', 'history'] as const).map(panel => (
         <button key={panel} onClick={() => setRightPanel(panel)}
-          className={`px-2.5 py-1.5 rounded-lg text-xs transition-all border capitalize ${rightPanel === panel ? active : inactive}`}>
+          className={`px-2.5 py-1.5 rounded-lg text-sm transition-all border capitalize ${rightPanel === panel ? active : inactive}`}>
           {panel}
         </button>
       ))}
@@ -195,13 +219,15 @@ function PanelToggles() {
 }
 
 export default function TopBar() {
+  const theme = useWorkflowStore(state => state.theme)
+  const isDark = theme === 'dark'
   return (
-    <div className="absolute top-3 left-3 z-50 w-[calc(100%-24px)] flex items-center justify-between">
-      <div className="flex items-center gap-2">
+    <div className="absolute top-4 left-4 z-50 w-[calc(100%-24px)] flex items-center justify-between">
+      <div className={`flex items-center gap-2 border  rounded-xl px-3 py-3 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-120`}>
         <LogoDropdown />
         <ProjectName />
       </div>
-      <div className="flex items-center gap-2">
+      <div className=" -mt-6 flex items-center gap-2 mr-3">
         <ThemeToggle />
         <PanelToggles />
       </div>

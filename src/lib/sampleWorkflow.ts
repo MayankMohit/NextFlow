@@ -11,7 +11,9 @@ export const SAMPLE_WORKFLOW = {
       type: 'uploadImageNode',
       position: { x: 80, y: 60 },
       data: {
-        imageUrl: undefined,
+        label: 'Upload Image',
+        imageUrl: "https://pub-e8fef8c0e03b44acb340577811800829.r2.dev/bc5c40077f954c75ab60937befebc5e5/894d3f024de14acfb922a445fee134fc/843ee59b5d2d463f87b3aaee45179b5f.webp",
+        status: 'idle',
       },
     },
     {
@@ -19,6 +21,8 @@ export const SAMPLE_WORKFLOW = {
       type: 'textNode',
       position: { x: 80, y: 310 },
       data: {
+        label: 'Text',
+        status: 'idle',
         text: 'You are a professional marketing copywriter. Generate a compelling one-paragraph product description based on the given image.',
       },
     },
@@ -27,6 +31,8 @@ export const SAMPLE_WORKFLOW = {
       type: 'textNode',
       position: { x: 80, y: 470 },
       data: {
+        label: 'Text',
+        status: 'idle',
         text: 'Product: Wireless Bluetooth Headphones. Features: Noise cancellation, 30-hour battery, foldable design.',
       },
     },
@@ -34,13 +40,27 @@ export const SAMPLE_WORKFLOW = {
       id: 'sw-crop',
       type: 'cropImageNode',
       position: { x: 448.99, y: 81.6 },
-      data: { xPercent: 33, yPercent: 0, widthPercent: 66, heightPercent: 100 },
+      data: {
+        label: 'Crop Image',
+        status: 'idle',
+        xPercent: 0,
+        yPercent: 0,
+        widthPercent: 55,
+        heightPercent: 100,
+        connectedInputs: ['image_url'],
+      },
     },
     {
       id: 'sw-llm1',
       type: 'llmNode',
       position: { x: 876.49, y: 289.4 },
-      data: { model: 'gemini-3.1-flash-lite-preview' },
+      data: {
+        label: 'LLM',
+        model: 'gemini-3.1-flash-lite-preview',
+        result: null,
+        status: 'idle',
+        connectedInputs: ['system_prompt', 'user_message', 'images'],
+      },
     },
     // Branch B — Video
     {
@@ -48,14 +68,21 @@ export const SAMPLE_WORKFLOW = {
       type: 'uploadVideoNode',
       position: { x: 82.71, y: 632.95 },
       data: {
-        videoUrl: undefined,
+        label: 'Upload Video',
+        videoUrl: "https://pub-e8fef8c0e03b44acb340577811800829.r2.dev/bc5c40077f954c75ab60937befebc5e5/15af439b2efa44cda2292ab34ecde51d/d1912ef65d174abf86b6f58b449d42af.mp4",
+        status: 'idle',
       },
     },
     {
       id: 'sw-extract',
       type: 'extractFrameNode',
       position: { x: 441.1, y: 579.39 },
-      data: { timestamp: '50%' },
+      data: {
+        label: 'Extract Frame',
+        status: 'idle',
+        timestamp: '40%',
+        connectedInputs: ['video_url'],
+      },
     },
     // Convergence inputs
     {
@@ -63,6 +90,8 @@ export const SAMPLE_WORKFLOW = {
       type: 'textNode',
       position: { x: 80, y: 840 },
       data: {
+        label: 'Text',
+        status: 'idle',
         text: 'You are a social media manager. Create a tweet-length marketing post based on the product image and video frame.',
       },
     },
@@ -71,7 +100,13 @@ export const SAMPLE_WORKFLOW = {
       id: 'sw-llm2',
       type: 'llmNode',
       position: { x: 1270.48, y: 627.59 },
-      data: { model: 'gemini-3.1-flash-lite-preview' },
+      data: {
+        label: 'LLM',
+        model: 'gemini-3.1-flash-lite-preview',
+        result: null,
+        status: 'idle',
+        connectedInputs: ['system_prompt', 'user_message', 'images'],
+      },
     },
   ] as Node[],
 

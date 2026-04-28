@@ -42,11 +42,18 @@ export const orchestratorTask = task({
     // when running a subset of nodes. Passthrough nodes read from node.data
     // directly; non-passthrough nodes use lastOutput (set by the client after
     // each layer completes) so crop/extract-frame results carry forward.
+    // Only set the key when the value is non-null so nodeOutputs.has() never
+    // returns a false-positive true with an undefined/null payload.
     for (const node of nodes) {
-      if (node.type === 'textNode') nodeOutputs.set(node.id, node.data.text)
-      else if (node.type === 'uploadImageNode') nodeOutputs.set(node.id, node.data.imageUrl)
-      else if (node.type === 'uploadVideoNode') nodeOutputs.set(node.id, node.data.videoUrl)
-      else if (node.data.lastOutput != null) nodeOutputs.set(node.id, node.data.lastOutput)
+      if (node.type === 'textNode') {
+        if (node.data.text != null) nodeOutputs.set(node.id, node.data.text)
+      } else if (node.type === 'uploadImageNode') {
+        if (node.data.imageUrl != null) nodeOutputs.set(node.id, node.data.imageUrl)
+      } else if (node.type === 'uploadVideoNode') {
+        if (node.data.videoUrl != null) nodeOutputs.set(node.id, node.data.videoUrl)
+      } else if (node.data.lastOutput != null) {
+        nodeOutputs.set(node.id, node.data.lastOutput)
+      }
     }
 
     for (const layer of layers) {

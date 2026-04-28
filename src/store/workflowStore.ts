@@ -868,8 +868,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     get().pushHistory()
     set({
       workflowName: SAMPLE_WORKFLOW.name,
-      nodes: SAMPLE_WORKFLOW.nodes,
-      edges: SAMPLE_WORKFLOW.edges,
+      nodes: JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.nodes)),
+      edges: JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.edges)),
       workflowId: 'new',
       runningNodeIds: new Set(),
       completedNodeIds: new Set(),
