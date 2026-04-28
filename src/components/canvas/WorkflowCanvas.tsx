@@ -149,7 +149,7 @@ function ConnectDropModal({
   return (
     <div
       ref={ref}
-      className={`fixed z-[100] border rounded-lg py-1 w-52 shadow-xl overflow-hidden ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}
+      className={`fixed z-100 border rounded-lg py-1 w-52 shadow-xl overflow-hidden ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}
       style={{ left: ctx.x, top: ctx.y }}
     >
       <div className={`px-3 pt-1 pb-1.5 text-[10px] uppercase tracking-wider font-medium border-b ${isDark ? 'text-[#555] border-[#2a2a2a]' : 'text-[#aaa] border-[#e8e8e8]'}`}>
