@@ -78,7 +78,6 @@ const OUTPUT_TO_TARGETS: Record<string, DropSuggestion[]> = {
     { nodeType: 'cropImageNode', label: 'Crop Image', targetHandle: 'image_url' },
   ],
   video: [
-    { nodeType: 'llmNode', label: 'LLM', targetHandle: 'video_url' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame', targetHandle: 'video_url' },
   ],
   text: [

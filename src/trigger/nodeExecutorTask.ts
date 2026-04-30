@@ -32,7 +32,7 @@ export const nodeExecutorTask = task({
     if (nodeType === 'llmNode') {
       const res = await llmTask.triggerAndWait({
         nodeId,
-        model: payload.model ?? 'gemini-2.0-flash',
+        model: payload.model ?? 'gemini-3.1-flash-lite-preview',
         systemPrompt: payload.systemPrompt,
         userMessage: payload.userMessage ?? '',
         imageUrls: payload.imageUrls,
