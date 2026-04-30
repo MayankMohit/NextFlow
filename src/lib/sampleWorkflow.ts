@@ -12,7 +12,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 80, y: 60 },
       data: {
         label: 'Upload Image',
-        imageUrl: "https://pub-e8fef8c0e03b44acb340577811800829.r2.dev/bc5c40077f954c75ab60937befebc5e5/894d3f024de14acfb922a445fee134fc/843ee59b5d2d463f87b3aaee45179b5f.webp",
+        imageUrl: null,
         status: 'idle',
       },
     },
@@ -69,7 +69,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 82.71, y: 632.95 },
       data: {
         label: 'Upload Video',
-        videoUrl: "https://pub-e8fef8c0e03b44acb340577811800829.r2.dev/bc5c40077f954c75ab60937befebc5e5/15af439b2efa44cda2292ab34ecde51d/d1912ef65d174abf86b6f58b449d42af.mp4",
+        videoUrl: null,
         status: 'idle',
       },
     },
