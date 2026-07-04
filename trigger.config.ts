@@ -2,7 +2,8 @@ import { defineConfig } from "@trigger.dev/sdk/v3";
 
 export default defineConfig({
   project: "proj_nhfszeiuhclmofocbxpn",
-  runtime: "node",
+  // node-22 has a global WebSocket, required by the Neon driver (Prisma adapter)
+  runtime: "node-22",
   logLevel: "log",
   // The max compute seconds a task is allowed to run. If the task run exceeds this duration, it will be stopped.
   // You can override this on an individual task.
