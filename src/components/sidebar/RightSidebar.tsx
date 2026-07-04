@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useWorkflowStore, type WorkflowRun, type Asset } from "@/store/workflowStore";
-import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, Copy, Download, X } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, Copy, Download, X, Trash2 } from "lucide-react";
 
 function useTheme() {
   const { theme } = useWorkflowStore()
@@ -350,7 +350,14 @@ function HistoryPanel() {
 
 function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const t = useTheme()
+  const deleteAsset = useWorkflowStore(s => s.deleteAsset)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const copyUrl = () => navigator.clipboard.writeText(asset.url)
+  const handleDelete = () => {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    void deleteAsset(asset.id)
+    onClose()
+  }
   const download = () => {
     const a = document.createElement("a")
     a.href = asset.url
@@ -380,6 +387,14 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
           </button>
           <button onClick={download} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white text-xs transition-colors">
             <Download size={12} /> Download
+          </button>
+          <button onClick={handleDelete}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-xs transition-colors ${
+              confirmDelete
+                ? 'bg-red-600 hover:bg-red-500 text-white'
+                : 'bg-red-900/30 hover:bg-red-900/50 text-red-400'
+            }`}>
+            <Trash2 size={12} /> {confirmDelete ? 'Confirm?' : 'Delete'}
           </button>
         </div>
       </div>

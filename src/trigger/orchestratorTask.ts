@@ -26,6 +26,12 @@ export interface NodeRunMeta {
 const PASSTHROUGH_TYPES = ['textNode', 'uploadImageNode', 'uploadVideoNode']
 const SKIPPED_ERROR = 'Skipped — a previous node failed.'
 
+// Node types whose successful output is a media URL worth saving as an Asset
+const MEDIA_OUTPUT_TYPES: Record<string, 'image' | 'video'> = {
+  cropImageNode: 'image',
+  extractFrameNode: 'image',
+}
+
 export const orchestratorTask = task({
   id: 'orchestrator-task',
   maxDuration: 600,
@@ -33,7 +39,7 @@ export const orchestratorTask = task({
   // are already reported per-node.
   retry: { maxAttempts: 1 },
   run: async (payload: OrchestratorPayload) => {
-    const { workflowRunId, nodes, edges, targetNodeIds } = payload
+    const { workflowRunId, workflowId, userId, nodes, edges, targetNodeIds } = payload
     const startedAt = Date.now()
 
     const targetNodes = (
@@ -129,6 +135,24 @@ export const orchestratorTask = task({
           }
         }),
       })
+      // Persist media outputs as Assets (permanent Blob URLs)
+      const assetRows = targetNodes.flatMap(n => {
+        const meta = nodesMeta[n.id]
+        const assetType = MEDIA_OUTPUT_TYPES[n.type ?? '']
+        if (!assetType || meta.status !== 'success' || typeof meta.output !== 'string') return []
+        return [{
+          userId,
+          workflowId,
+          nodeId: n.id,
+          type: assetType,
+          url: meta.output,
+          meta: { source: 'run', nodeType: n.type ?? 'unknown' },
+        }]
+      })
+      if (assetRows.length > 0) {
+        await prisma.asset.createMany({ data: assetRows })
+      }
+
       await prisma.workflowRun.update({
         where: { id: workflowRunId },
         data: { status: overallStatus, duration: (Date.now() - startedAt) / 1000 },

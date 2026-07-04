@@ -1,5 +1,6 @@
 import type { NodeExecutor } from './types'
 import { runAssembly, transloaditKey } from './transloadit'
+import { copyUrlToBlob } from '@/lib/blob'
 
 export const executeExtractFrame: NodeExecutor = async ({ node, inputs }) => {
   const data = node.data as Record<string, unknown>
@@ -40,5 +41,7 @@ export const executeExtractFrame: NodeExecutor = async ({ node, inputs }) => {
 
   const frameUrl = assembly.results?.frame?.[0]?.url
   if (!frameUrl) throw new Error('No frame URL returned')
-  return frameUrl
+
+  // Transloadit result URLs expire — copy the frame to permanent storage
+  return copyUrlToBlob(frameUrl, `outputs/${node.id}-frame.jpg`)
 }

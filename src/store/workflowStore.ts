@@ -193,31 +193,6 @@ function maybeAddAsset(
   })
 }
 
-// Rebuild the assets panel from a loaded workflow — media URLs survive the
-// refresh inside the nodes JSON (imageUrl/videoUrl for uploads, lastOutput
-// for executed image nodes), the in-memory assets list does not.
-function assetsFromNodes(nodes: Node[]): Asset[] {
-  const assets: Asset[] = []
-  for (const n of nodes) {
-    const d = n.data as Record<string, unknown>
-    const url =
-      n.type === 'uploadImageNode' ? d.imageUrl :
-      n.type === 'uploadVideoNode' ? d.videoUrl :
-      ['cropImageNode', 'extractFrameNode'].includes(n.type ?? '') ? d.lastOutput :
-      undefined
-    if (typeof url !== 'string' || !url.startsWith('http')) continue
-    assets.push({
-      id: `${n.id}-${url}`,
-      nodeId: n.id,
-      type: n.type === 'uploadVideoNode' ? 'video' : 'image',
-      url,
-      createdAt: new Date().toISOString(),
-      meta: { model: d.model as string | undefined },
-    })
-  }
-  return assets.reverse() // newest-added nodes first, matching addAsset order
-}
-
 // ---------------------------------------------------------------------------
 // Run helpers — passthrough nodes (text/upload) never execute on the server,
 // their data is used directly.
@@ -335,6 +310,12 @@ interface WorkflowStore {
   fetchRuns: () => Promise<void>
   assets: Asset[]
   addAsset: (asset: Asset) => void
+  /** Hydrates the assets panel from the Asset table (merges with local). */
+  fetchAssets: () => Promise<void>
+  /** Adds an asset locally AND persists it via POST /api/assets. */
+  recordAsset: (a: { nodeId: string; type: 'image' | 'video'; url: string; meta?: Asset['meta'] }) => Promise<void>
+  /** Removes an asset from the panel, the DB row, and Blob storage. */
+  deleteAsset: (id: string) => Promise<void>
   projects: { id: string; name: string; updatedAt: string }[]
   fetchProjects: () => Promise<void>
   deleteProject: (id: string) => Promise<void>
@@ -478,9 +459,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         runningNodeIds: new Set(),
         completedNodeIds,
         saveState: 'idle',
-        assets: assetsFromNodes(nodes),
+        // Assets/runs come from the DB (fetchAssets/fetchRuns) — deriving
+        // assets from node data would resurrect ones the user deleted.
+        assets: [],
+        runs: [],
       })
-      if (id !== 'new') get().fetchRuns()
+      if (id !== 'new') {
+        get().fetchRuns()
+        get().fetchAssets()
+      }
     } finally { set({ isLoading: false }) }
   },
 
@@ -675,6 +662,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       return { isRunning: false, runningNodeIds: next, activeRun: null }
     })
     get().fetchRuns()
+    get().fetchAssets() // the orchestrator writes Asset rows for media outputs
   },
 
   // ── Per-node run state ─────────────────────────────────────────────────────
@@ -776,6 +764,61 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       : { assets: [asset, ...s.assets] },
   ),
 
+  fetchAssets: async () => {
+    const { workflowId } = get()
+    if (workflowId === 'new') return
+    try {
+      const res = await fetch(`/api/assets?workflowId=${workflowId}`)
+      if (!res.ok) return
+      const rows: Array<{
+        id: string
+        nodeId: string | null
+        type: 'image' | 'video'
+        url: string
+        createdAt: string
+        meta?: Asset['meta'] | null
+      }> = await res.json()
+      set(s => {
+        // DB rows are authoritative; keep local-only entries (e.g. from a
+        // workflow that was never saved) that the DB doesn't know about.
+        const dbUrls = new Set(rows.map(r => r.url))
+        const localOnly = s.assets.filter(a => !dbUrls.has(a.url))
+        const dbAssets: Asset[] = rows.map(r => ({
+          id: r.id,
+          nodeId: r.nodeId ?? '',
+          type: r.type,
+          url: r.url,
+          createdAt: r.createdAt,
+          meta: r.meta ?? undefined,
+        }))
+        return { assets: [...dbAssets, ...localOnly] }
+      })
+    } catch { /**/ }
+  },
+
+  recordAsset: async ({ nodeId, type, url, meta }) => {
+    get().addAsset({ id: `${nodeId}-${url}`, nodeId, type, url, createdAt: new Date().toISOString(), meta })
+    try {
+      // Unsaved workflow: save first so the Asset row links to a real id
+      if (get().workflowId === 'new') await get().saveWorkflow()
+      await fetch('/api/assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, type, nodeId, workflowId: get().workflowId, meta }),
+      })
+    } catch { /* panel already shows it; the DB row is best-effort here */ }
+  },
+
+  deleteAsset: async (id) => {
+    const prev = get().assets
+    set(s => ({ assets: s.assets.filter(a => a.id !== id) }))
+    try {
+      const res = await fetch(`/api/assets/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      // 404 = local-only asset that was never persisted — removing it locally is enough
+      if (!res.ok && res.status !== 404) set({ assets: prev })
+    } catch { set({ assets: prev }) }
+  },
+
   projects: [],
   fetchProjects: async () => {
     try {
@@ -787,7 +830,26 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const prev = get().projects
     set(s => ({ projects: s.projects.filter(p => p.id !== id) }))
     const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
-    if (!res.ok) set({ projects: prev })
+    if (!res.ok) { set({ projects: prev }); return }
+
+    // Deleted the workflow that's currently open — reset to a fresh canvas
+    if (get().workflowId === id) {
+      if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null }
+      set({
+        workflowId: 'new',
+        workflowName: 'Untitled',
+        nodes: [],
+        edges: [],
+        past: [], future: [],
+        runningNodeIds: new Set(),
+        completedNodeIds: new Set(),
+        runs: [],
+        assets: [],
+        saveState: 'idle',
+        activeRun: null,
+      })
+      window.history.replaceState({}, '', '/workflow/new')
+    }
   },
 
   canvasTool: 'select',
@@ -809,28 +871,35 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   importWorkflow: (json) => {
     try {
       const data = JSON.parse(json)
+      const nodes: Node[] = data.nodes ?? []
       get().pushHistory()
       set({
         workflowName: data.name ?? 'Imported',
-        nodes: data.nodes ?? [],
+        nodes,
         edges: data.edges ?? [],
         workflowId: 'new',
         runningNodeIds: new Set(),
         completedNodeIds: new Set(),
+        // Different (unsaved) workflow — drop the previous one's panel state
+        runs: [],
+        assets: [],
       })
       get().scheduleAutoSave()
     } catch { /**/ }
   },
 
   loadSampleWorkflow: () => {
+    const nodes: Node[] = JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.nodes))
     get().pushHistory()
     set({
       workflowName: SAMPLE_WORKFLOW.name,
-      nodes: JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.nodes)),
+      nodes,
       edges: JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.edges)),
       workflowId: 'new',
       runningNodeIds: new Set(),
       completedNodeIds: new Set(),
+      runs: [],
+      assets: [],
     })
     get().scheduleAutoSave()
   },

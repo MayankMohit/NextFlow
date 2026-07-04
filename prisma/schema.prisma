@@ -8,14 +8,31 @@ datasource db {
 }
 
 model Workflow {
-  id        String        @id @default(cuid())
-  userId    String
-  name      String        @default("Untitled Workflow")
-  nodes     Json          @default("[]")
-  edges     Json          @default("[]")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  runs      WorkflowRun[]
+  id         String        @id @default(cuid())
+  userId     String
+  name       String        @default("Untitled Workflow")
+  nodes      Json          @default("[]")
+  edges      Json          @default("[]")
+  coverImage String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  runs       WorkflowRun[]
+  assets     Asset[]
+}
+
+model Asset {
+  id         String    @id @default(cuid())
+  userId     String
+  workflowId String?
+  workflow   Workflow? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  nodeId     String?
+  type       String // image | video
+  url        String
+  meta       Json?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([workflowId])
 }
 
 model WorkflowRun {

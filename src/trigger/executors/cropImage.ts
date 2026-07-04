@@ -1,6 +1,6 @@
 import sharp from 'sharp'
 import type { NodeExecutor } from './types'
-import { runAssembly, transloaditKey } from './transloadit'
+import { uploadBufferToBlob } from '@/lib/blob'
 
 function asNumber(...candidates: unknown[]): number | undefined {
   for (const c of candidates) if (typeof c === 'number' && !Number.isNaN(c)) return c
@@ -33,19 +33,8 @@ export const executeCropImage: NodeExecutor = async ({ node, inputs }) => {
       width: Math.round((widthPercent / 100) * imgW),
       height: Math.round((heightPercent / 100) * imgH),
     })
+    .jpeg({ quality: 92 })
     .toBuffer()
 
-  // Transloadit only hosts the result here — swapped for Vercel Blob in the
-  // persistence step, which removes this round-trip entirely.
-  const assembly = await runAssembly(
-    {
-      auth: { key: transloaditKey() },
-      steps: { ':original': { robot: '/upload/handle' } },
-    },
-    { blob: new Blob([new Uint8Array(croppedBuffer)], { type: 'image/jpeg' }), name: 'cropped.jpg' },
-  )
-
-  const croppedUrl = assembly.uploads?.[0]?.url
-  if (!croppedUrl) throw new Error('No cropped image URL returned')
-  return croppedUrl
+  return uploadBufferToBlob(croppedBuffer, `outputs/${node.id}-cropped.jpg`, 'image/jpeg')
 }

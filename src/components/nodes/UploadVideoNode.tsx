@@ -3,6 +3,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Video, Upload, Loader2, Play, X } from 'lucide-react'
 import { useState } from 'react'
+import { upload } from '@vercel/blob/client'
 import { useWorkflowStore } from '@/store/workflowStore'
 import { useNodeHover } from '@/hooks/usenodehover'
 import { useNodeStatus } from '@/hooks/useNodeStatus'
@@ -10,7 +11,7 @@ import { useNodeStatus } from '@/hooks/useNodeStatus'
 const NODE_COLOR = '#067ef8'
 
 export default function UploadVideoNode({ selected, data, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore()
+  const { updateNodeData, theme, runNode, saveWorkflow, recordAsset } = useWorkflowStore()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const isDark = theme === 'dark'
@@ -59,23 +60,13 @@ const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
     if (!file) return
     setUploading(true); setUploadError(null)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const params = JSON.stringify({ auth: { key: process.env.NEXT_PUBLIC_TRANSLOADIT_KEY }, steps: { ':original': { robot: '/upload/handle' } } })
-      formData.append('params', params)
-      const res = await fetch('https://api2.transloadit.com/assemblies', { method: 'POST', body: formData })
-      const result = await res.json()
-      if (result.error) throw new Error(result.error)
-      let assembly = result
-      while (assembly.ok !== 'ASSEMBLY_COMPLETED') {
-        await new Promise(r => setTimeout(r, 1000))
-        const poll = await fetch(`https://api2.transloadit.com/assemblies/${assembly.assembly_id}`)
-        assembly = await poll.json()
-        if (assembly.error) throw new Error(assembly.error)
-      }
-      const url = assembly.uploads?.[0]?.url
-      if (!url) throw new Error('No URL returned from Transloadit')
-      updateNodeData(id, { videoUrl: url })
+      // Direct-to-Blob upload: permanent URL, no server body-size limit
+      const blob = await upload(`uploads/${file.name}`, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+      })
+      updateNodeData(id, { videoUrl: blob.url })
+      void recordAsset({ nodeId: id, type: 'video', url: blob.url })
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed')
     } finally { setUploading(false) }
