@@ -1,19 +1,21 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Film, Play, Loader2, X } from "lucide-react";
+import { Monitor, Play, Loader2, X, Download } from "lucide-react";
+import { useState } from "react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useNodeHover } from "@/hooks/usenodehover";
 import { useNodeStatus } from "@/hooks/useNodeStatus";
 import OutputPreview from "./shared/OutputPreview";
 
-const NODE_COLOR = "#16A68D";
+const NODE_COLOR = "#ec4899";
 
-export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
+export default function OutputNode({ selected, data, id }: NodeProps) {
   const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id);
+  const [downloading, setDownloading] = useState(false);
 
   const handleRun = async () => {
     await saveWorkflow();
@@ -28,16 +30,31 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
       : "border-[#e0e0e0]";
   const hdrBorder = isDark ? "border-[#2a2a2a]" : "border-[#e8e8e8]";
   const textMain = isDark ? "text-white" : "text-[#111]";
-  const labelColor = isDark ? "text-[#666]" : "text-[#888]";
   const hintColor = isDark ? "text-[#444]" : "text-[#ccc]";
-  const inputCls = isDark
-    ? "bg-[#141414] text-white border-[#2a2a2a] placeholder:text-[#444]"
-    : "bg-[#f5f5f5] text-[#111] border-[#e0e0e0] placeholder:text-[#ccc]";
+  const resultBg = isDark
+    ? "bg-[#141414] text-[#ccc] border-[#2a2a2a]"
+    : "bg-[#f5f5f5] text-[#333] border-[#e0e0e0]";
 
   const borderColor = selected ? NODE_COLOR : isDark ? "#2a2a2a" : "#e0e0e0";
 
+  const scrollbarStyle = `
+    .outputnode-result::-webkit-scrollbar { width: 4px; }
+    .outputnode-result::-webkit-scrollbar-track { background: transparent; }
+    .outputnode-result::-webkit-scrollbar-thumb {
+      background: ${isDark ? "#3a3a3a" : "#d0d0d0"};
+      border-radius: 99px;
+    }
+    .outputnode-result::-webkit-scrollbar-thumb:hover {
+      background: ${isDark ? "#555" : "#b0b0b0"};
+    }
+    .outputnode-result {
+      scrollbar-width: thin;
+      scrollbar-color: ${isDark ? "#3a3a3a transparent" : "#d0d0d0 transparent"};
+    }
+  `;
+
   const glowKeyframes = `
-    @keyframes extract-node-glow {
+    @keyframes output-node-glow {
       0%, 100% {
         box-shadow: 0 0 0 1.5px ${NODE_COLOR}44, 0 0 14px 4px ${NODE_COLOR}28;
       }
@@ -50,34 +67,48 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
   const glowStyle: React.CSSProperties = isNodeRunning
     ? {
         borderColor: `${NODE_COLOR}aa`,
-        animation: 'extract-node-glow 1.8s ease-in-out infinite',
+        animation: "output-node-glow 1.8s ease-in-out infinite",
       }
     : {
         borderColor,
         boxShadow: selected ? `0 0 0 1.5px ${NODE_COLOR}55` : undefined,
       };
 
-  const isConnected = (handle: string) =>
-    (data.connectedInputs as string[] | undefined)?.includes(handle);
+  // What kind of output are we showing?
+  const output = data.lastOutput;
+  const url =
+    typeof output === "string" && output.startsWith("http") ? output : null;
+  const isVideo = url ? /\.(mp4|webm|mov)(\?|$)/i.test(url) : false;
+  const text = typeof output === "string" && !url ? output : null;
 
-  const resultUrl =
-    typeof data.lastOutput === "string" && data.lastOutput.startsWith("http")
-      ? data.lastOutput
-      : null;
-  // Preview (fixed 160px) + gap-2 sit above the field rows when present
-  const handleOffset = resultUrl ? 168 : 0;
+  const download = async () => {
+    if (!url || downloading) return;
+    setDownloading(true);
+    try {
+      // Cross-origin URLs ignore the `download` attribute — go via object URL
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      const blob = await res.blob();
+      const ext =
+        new URL(url).pathname.split(".").pop() || (isVideo ? "mp4" : "jpg");
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `output-${id}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      window.open(url, "_blank");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const tHandle = {
     background: `${NODE_COLOR}50`,
     width: 10,
     height: 10,
     border: `2.5px solid ${NODE_COLOR}`,
-  };
-  const sHandle = {
-    background: NODE_COLOR,
-    width: 10,
-    height: 10,
-    border: `2px solid ${NODE_COLOR}CC`,
   };
 
   return (
@@ -86,6 +117,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      <style>{scrollbarStyle}</style>
       {isNodeRunning && <style>{glowKeyframes}</style>}
       {typeof data.error === "string" && (
         <div className="absolute bottom-full left-0 right-0 z-10 mb-1 flex items-start gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500 text-white text-[11px] font-medium">
@@ -98,6 +130,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
           </button>
         </div>
       )}
+
       {/* Hover run button */}
       {hovered && !isNodeRunning && (
         <button
@@ -140,67 +173,40 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
         className={`w-64 ${nodeBg} border ${border} rounded-lg overflow-hidden`}
         style={glowStyle}
       >
-        <div
-          className={`flex items-center gap-2 px-3 py-2 border-b ${hdrBorder}`}
-        >
-          <Film size={13} style={{ color: NODE_COLOR }} />
-          <span className={`text-xs font-medium ${textMain}`}>
-            Extract Frame
-          </span>
+        <div className={`flex items-center gap-2 px-3 py-2 border-b ${hdrBorder}`}>
+          <Monitor size={13} style={{ color: NODE_COLOR }} />
+          <span className={`text-xs font-medium ${textMain}`}>Output</span>
         </div>
+
         <div className="p-3 flex flex-col gap-2">
-          {resultUrl && (
-            <OutputPreview
-              url={resultUrl}
-              isDark={isDark}
-              name={`frame-${id}`}
-              height={160}
-            />
+          {output == null ? (
+            <p className={`text-xs ${hintColor}`}>
+              Connect any node — its result shows here after a run.
+            </p>
+          ) : url ? (
+            <OutputPreview url={url} isDark={isDark} name={`output-${id}`} />
+          ) : (
+            <div
+              className={`outputnode-result nodrag nowheel select-text text-xs rounded p-2 border max-h-40 overflow-y-auto whitespace-pre-wrap ${resultBg}`}
+            >
+              {text}
+            </div>
           )}
-          {/* Video input row */}
-          <div className="flex items-center gap-2 h-4">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Video</span>
-          </div>
 
-          {/* Timestamp input */}
-          <div className="flex items-center gap-2">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
-              Timestamp
-            </span>
-
-            <input
-              type="text"
-              disabled={isConnected("timestamp")}
-              defaultValue={(data.timestamp as string) ?? "0"}
-              onChange={(e) =>
-                updateNodeData(id, { timestamp: e.target.value })
-              }
-              placeholder="0 or 50%"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
-            />
-          </div>
-          <p className={`text-xs ${hintColor}`}>
-            seconds or percentage e.g. 50%
-          </p>
+          {url && (
+            <button
+              onClick={download}
+              disabled={downloading}
+              className="nodrag flex items-center justify-center gap-1.5 py-1.5 rounded text-xs text-white transition-colors disabled:opacity-60"
+              style={{ background: NODE_COLOR }}
+            >
+              <Download size={12} />
+              {downloading ? "Downloading…" : "Download"}
+            </button>
+          )}
         </div>
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="video_url"
-          style={{ top: 55 + handleOffset, ...tHandle }}
-        />
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="timestamp"
-          style={{ top: 86 + handleOffset, ...tHandle }}
-        />
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="output"
-          style={sHandle}
-        />
+
+        <Handle type="target" position={Position.Left} id="input" style={tHandle} />
       </div>
     </div>
   );

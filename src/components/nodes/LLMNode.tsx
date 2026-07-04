@@ -214,9 +214,9 @@ export default function LLMNode({ selected, data, id }: NodeProps) {
           {/* Result */}
           <div className="relative group/result">
             <div
-              className={`llmnode-result nodrag select-text border rounded p-2 text-xs h-24 overflow-y-auto whitespace-pre-wrap ${resultBg} ${
+              className={`llmnode-result nodrag nowheel select-text border rounded p-2 text-xs h-40 overflow-y-auto whitespace-pre-wrap ${resultBg} ${
                 result
-                  ? isDark ? "text-white" : "text-[#111]"
+                  ? isDark ? "text-[#ccc]" : "text-[#333]"
                   : isDark ? "text-[#444]" : "text-[#ccc]"
               }`}
             >
@@ -242,19 +242,19 @@ export default function LLMNode({ selected, data, id }: NodeProps) {
           type="target"
           position={Position.Left}
           id="system_prompt"
-          style={{ top: "20%", ...tHandle }}
+          style={{ top: 55, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="user_message"
-          style={{ top: "30%", ...tHandle }}
+          style={{ top: 79, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="images"
-          style={{ top: "40%", ...tHandle }}
+          style={{ top: 103, ...tHandle }}
         />
         <Handle
           type="source"

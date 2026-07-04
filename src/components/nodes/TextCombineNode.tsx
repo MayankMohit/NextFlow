@@ -1,15 +1,14 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Film, Play, Loader2, X } from "lucide-react";
+import { Combine, Play, Loader2, X } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useNodeHover } from "@/hooks/usenodehover";
 import { useNodeStatus } from "@/hooks/useNodeStatus";
-import OutputPreview from "./shared/OutputPreview";
 
-const NODE_COLOR = "#16A68D";
+const NODE_COLOR = "#f97316";
 
-export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
+export default function TextCombineNode({ selected, data, id }: NodeProps) {
   const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
@@ -33,11 +32,30 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
   const inputCls = isDark
     ? "bg-[#141414] text-white border-[#2a2a2a] placeholder:text-[#444]"
     : "bg-[#f5f5f5] text-[#111] border-[#e0e0e0] placeholder:text-[#ccc]";
+  const resultBg = isDark
+    ? "bg-[#141414] text-[#ccc] border-[#2a2a2a]"
+    : "bg-[#f5f5f5] text-[#333] border-[#e0e0e0]";
 
   const borderColor = selected ? NODE_COLOR : isDark ? "#2a2a2a" : "#e0e0e0";
 
+  const scrollbarStyle = `
+    .textcombine-scroll::-webkit-scrollbar { width: 4px; }
+    .textcombine-scroll::-webkit-scrollbar-track { background: transparent; }
+    .textcombine-scroll::-webkit-scrollbar-thumb {
+      background: ${isDark ? "#3a3a3a" : "#d0d0d0"};
+      border-radius: 99px;
+    }
+    .textcombine-scroll::-webkit-scrollbar-thumb:hover {
+      background: ${isDark ? "#555" : "#b0b0b0"};
+    }
+    .textcombine-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: ${isDark ? "#3a3a3a transparent" : "#d0d0d0 transparent"};
+    }
+  `;
+
   const glowKeyframes = `
-    @keyframes extract-node-glow {
+    @keyframes text-combine-node-glow {
       0%, 100% {
         box-shadow: 0 0 0 1.5px ${NODE_COLOR}44, 0 0 14px 4px ${NODE_COLOR}28;
       }
@@ -50,22 +68,12 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
   const glowStyle: React.CSSProperties = isNodeRunning
     ? {
         borderColor: `${NODE_COLOR}aa`,
-        animation: 'extract-node-glow 1.8s ease-in-out infinite',
+        animation: "text-combine-node-glow 1.8s ease-in-out infinite",
       }
     : {
         borderColor,
         boxShadow: selected ? `0 0 0 1.5px ${NODE_COLOR}55` : undefined,
       };
-
-  const isConnected = (handle: string) =>
-    (data.connectedInputs as string[] | undefined)?.includes(handle);
-
-  const resultUrl =
-    typeof data.lastOutput === "string" && data.lastOutput.startsWith("http")
-      ? data.lastOutput
-      : null;
-  // Preview (fixed 160px) + gap-2 sit above the field rows when present
-  const handleOffset = resultUrl ? 168 : 0;
 
   const tHandle = {
     background: `${NODE_COLOR}50`,
@@ -80,12 +88,15 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
     border: `2px solid ${NODE_COLOR}CC`,
   };
 
+  const result = typeof data.lastOutput === "string" ? data.lastOutput : null;
+
   return (
     <div
       className="relative"
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      <style>{scrollbarStyle}</style>
       {isNodeRunning && <style>{glowKeyframes}</style>}
       {typeof data.error === "string" && (
         <div className="absolute bottom-full left-0 right-0 z-10 mb-1 flex items-start gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500 text-white text-[11px] font-medium">
@@ -98,6 +109,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
           </button>
         </div>
       )}
+
       {/* Hover run button */}
       {hovered && !isNodeRunning && (
         <button
@@ -140,67 +152,47 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
         className={`w-64 ${nodeBg} border ${border} rounded-lg overflow-hidden`}
         style={glowStyle}
       >
-        <div
-          className={`flex items-center gap-2 px-3 py-2 border-b ${hdrBorder}`}
-        >
-          <Film size={13} style={{ color: NODE_COLOR }} />
-          <span className={`text-xs font-medium ${textMain}`}>
-            Extract Frame
-          </span>
+        <div className={`flex items-center gap-2 px-3 py-2 border-b ${hdrBorder}`}>
+          <Combine size={13} style={{ color: NODE_COLOR }} />
+          <span className={`text-xs font-medium ${textMain}`}>Text Combine</span>
         </div>
-        <div className="p-3 flex flex-col gap-2">
-          {resultUrl && (
-            <OutputPreview
-              url={resultUrl}
-              isDark={isDark}
-              name={`frame-${id}`}
-              height={160}
-            />
-          )}
-          {/* Video input row */}
-          <div className="flex items-center gap-2 h-4">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Video</span>
-          </div>
 
-          {/* Timestamp input */}
-          <div className="flex items-center gap-2">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
-              Timestamp
-            </span>
+        <div className="p-3 flex flex-col gap-1.5">
+          {[1, 2, 3, 4].map(n => (
+            <div key={n} className="flex items-center gap-2 h-4">
+              <span className={`text-xs ${labelColor}`}>Text {n}</span>
+            </div>
+          ))}
 
-            <input
-              type="text"
-              disabled={isConnected("timestamp")}
-              defaultValue={(data.timestamp as string) ?? "0"}
-              onChange={(e) =>
-                updateNodeData(id, { timestamp: e.target.value })
-              }
-              placeholder="0 or 50%"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
-            />
-          </div>
+          <span className={`text-xs mt-1 ${labelColor}`}>Template</span>
+          <textarea
+            defaultValue={(data.template as string) ?? ""}
+            onChange={(e) => updateNodeData(id, { template: e.target.value })}
+            placeholder={"{{1}} — {{2}}"}
+            rows={4}
+            className={`textcombine-scroll nodrag nowheel w-full text-xs rounded p-1.5 border outline-none resize-none ${inputCls}`}
+          />
           <p className={`text-xs ${hintColor}`}>
-            seconds or percentage e.g. 50%
+            {"{{1}}–{{4}} insert inputs; empty = join all"}
           </p>
+
+          {result && (
+            <div className={`textcombine-scroll nodrag nowheel select-text text-xs rounded p-2 border max-h-24 overflow-y-auto whitespace-pre-wrap ${resultBg}`}>
+              {result}
+            </div>
+          )}
         </div>
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="video_url"
-          style={{ top: 55 + handleOffset, ...tHandle }}
-        />
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="timestamp"
-          style={{ top: 86 + handleOffset, ...tHandle }}
-        />
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="output"
-          style={sHandle}
-        />
+
+        {[1, 2, 3, 4].map((n, i) => (
+          <Handle
+            key={n}
+            type="target"
+            position={Position.Left}
+            id={`text_${n}`}
+            style={{ top: 55 + i * 22, ...tHandle }}
+          />
+        ))}
+        <Handle type="source" position={Position.Right} id="output" style={sHandle} />
       </div>
     </div>
   );

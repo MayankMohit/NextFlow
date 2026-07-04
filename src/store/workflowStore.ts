@@ -61,7 +61,7 @@ interface HistorySnapshot {
 
 const IMAGE_HANDLES = new Set(['image_url', 'images'])
 const VIDEO_HANDLES = new Set(['video_url'])
-const TEXT_HANDLES = new Set(['system_prompt', 'user_message', 'timestamp', 'x_percent', 'y_percent', 'width_percent', 'height_percent'])
+const TEXT_HANDLES = new Set(['system_prompt', 'user_message', 'timestamp', 'x_percent', 'y_percent', 'width_percent', 'height_percent', 'text_1', 'text_2', 'text_3', 'text_4'])
 
 const SOURCE_OUTPUT_TYPE: Record<string, string> = {
   textNode: 'text',
@@ -70,6 +70,9 @@ const SOURCE_OUTPUT_TYPE: Record<string, string> = {
   cropImageNode: 'image',
   extractFrameNode: 'image',
   llmNode: 'text',
+  textCombineNode: 'text',
+  resizeImageNode: 'image',
+  // outputNode is terminal — it has no source handle
 }
 
 export function checkIsValidConnection(connection: Connection, nodes: Node[], edges: Edge[]): boolean {
@@ -180,7 +183,7 @@ function maybeAddAsset(
   addAsset: (a: Asset) => void,
 ) {
   if (typeof output !== 'string' || !output.startsWith('http')) return
-  const isImage = ['uploadImageNode', 'cropImageNode', 'extractFrameNode'].includes(nodeType ?? '')
+  const isImage = ['uploadImageNode', 'cropImageNode', 'extractFrameNode', 'resizeImageNode'].includes(nodeType ?? '')
   const isVideo = nodeType === 'uploadVideoNode'
   if (!isImage && !isVideo) return
   addAsset({
@@ -309,6 +312,9 @@ interface WorkflowStore {
   runs: WorkflowRun[]
   fetchRuns: () => Promise<void>
   assets: Asset[]
+  /** True once fetchAssets has hydrated from the DB — gates checks that
+      treat a missing Asset row as "deleted". */
+  assetsLoaded: boolean
   addAsset: (asset: Asset) => void
   /** Hydrates the assets panel from the Asset table (merges with local). */
   fetchAssets: () => Promise<void>
@@ -328,6 +334,22 @@ interface WorkflowStore {
 
 const MAX_HISTORY = 50
 
+// connectedInputs mirrors which target handles have an incoming edge — nodes
+// disable their manual fields for those handles. Derive it from the edges so
+// every change (connect, edge delete, node delete, load) stays in sync and
+// fields re-enable when their edge goes away.
+const syncConnectedInputs = (nodes: Node[], edges: Edge[]): Node[] =>
+  nodes.map(node => {
+    const connected = [...new Set(
+      edges
+        .filter(e => e.target === node.id && e.targetHandle)
+        .map(e => e.targetHandle as string),
+    )]
+    const current = (node.data.connectedInputs as string[] | undefined) ?? []
+    if (connected.length === current.length && connected.every(h => current.includes(h))) return node
+    return { ...node, data: { ...node.data, connectedInputs: connected } }
+  })
+
 // ---------------------------------------------------------------------------
 // Auto-save — debounced so bursts of changes (dragging, typing) collapse into
 // a single PUT once the canvas has been idle for a moment.
@@ -346,7 +368,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (changes.some(c => c.type !== 'select' && c.type !== 'dimensions')) get().scheduleAutoSave()
   },
   onEdgesChange: (changes) => {
-    set({ edges: applyEdgeChanges(changes, get().edges) })
+    const edges = applyEdgeChanges(changes, get().edges)
+    set({
+      edges,
+      ...(changes.some(c => c.type === 'remove')
+        ? { nodes: syncConnectedInputs(get().nodes, edges) }
+        : {}),
+    })
     if (changes.some(c => c.type !== 'select')) get().scheduleAutoSave()
   },
 
@@ -360,15 +388,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
     if (hasCycle(edges, newEdge)) return
     get().pushHistory()
-    set({ edges: addEdge(newEdge, edges) })
+    const newEdges = addEdge(newEdge, edges)
+    set({ edges: newEdges, nodes: syncConnectedInputs(nodes, newEdges) })
     get().scheduleAutoSave()
-    const targetNode = nodes.find(n => n.id === connection.target)
-    if (targetNode && connection.targetHandle) {
-      const existing = (targetNode.data.connectedInputs as string[] | undefined) ?? []
-      get().updateNodeData(connection.target, {
-        connectedInputs: [...new Set([...existing, connection.targetHandle])],
-      })
-    }
   },
 
   addNode: (node) => { get().pushHistory(); set({ nodes: [...get().nodes, node] }); get().scheduleAutoSave() },
@@ -380,10 +402,9 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   deleteNode: (nodeId) => {
     get().pushHistory()
-    set({
-      nodes: get().nodes.filter(n => n.id !== nodeId),
-      edges: get().edges.filter(e => e.source !== nodeId && e.target !== nodeId),
-    })
+    const nodes = get().nodes.filter(n => n.id !== nodeId)
+    const edges = get().edges.filter(e => e.source !== nodeId && e.target !== nodeId)
+    set({ nodes: syncConnectedInputs(nodes, edges), edges })
     get().scheduleAutoSave()
   },
 
@@ -440,10 +461,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       // A save may have been interrupted mid-run — 'running' is never a valid
       // status after a fresh load, and completed nodes must count as completed
       // so downstream partial runs are allowed again.
-      const nodes: Node[] = (data.nodes ?? []).map((n: Node) =>
-        (n.data as Record<string, unknown>)?.status === 'running'
-          ? { ...n, data: { ...n.data, status: 'idle' } }
-          : n,
+      const edges: Edge[] = (data.edges ?? []).map((e: Edge) => ({ ...e, type: 'default', animated: false, style: undefined }))
+      const nodes: Node[] = syncConnectedInputs(
+        (data.nodes ?? []).map((n: Node) =>
+          (n.data as Record<string, unknown>)?.status === 'running'
+            ? { ...n, data: { ...n.data, status: 'idle' } }
+            : n,
+        ),
+        edges,
       )
       const completedNodeIds = new Set(
         nodes
@@ -454,7 +479,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         workflowId: data.id,
         workflowName: data.name ?? 'Untitled',
         nodes,
-        edges: (data.edges ?? []).map((e: Edge) => ({ ...e, type: 'default', animated: false, style: undefined })),
+        edges,
         past: [], future: [],
         runningNodeIds: new Set(),
         completedNodeIds,
@@ -462,6 +487,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         // Assets/runs come from the DB (fetchAssets/fetchRuns) — deriving
         // assets from node data would resurrect ones the user deleted.
         assets: [],
+        assetsLoaded: false,
         runs: [],
       })
       if (id !== 'new') {
@@ -758,6 +784,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   assets: [],
+  assetsLoaded: false,
   addAsset: (asset) => set(s =>
     s.assets.some(a => a.nodeId === asset.nodeId && a.url === asset.url)
       ? s
@@ -791,7 +818,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           createdAt: r.createdAt,
           meta: r.meta ?? undefined,
         }))
-        return { assets: [...dbAssets, ...localOnly] }
+        return { assets: [...dbAssets, ...localOnly], assetsLoaded: true }
       })
     } catch { /**/ }
   },
@@ -811,11 +838,27 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   deleteAsset: async (id) => {
     const prev = get().assets
+    const url = prev.find(a => a.id === id)?.url
     set(s => ({ assets: s.assets.filter(a => a.id !== id) }))
     try {
       const res = await fetch(`/api/assets/${encodeURIComponent(id)}`, { method: 'DELETE' })
       // 404 = local-only asset that was never persisted — removing it locally is enough
-      if (!res.ok && res.status !== 404) set({ assets: prev })
+      if (!res.ok && res.status !== 404) { set({ assets: prev }); return }
+      // The blob is gone — clear node previews/uploads still pointing at it
+      if (url) {
+        set({
+          nodes: get().nodes.map(n => {
+            const d = n.data as Record<string, unknown>
+            if (d.lastOutput !== url && d.imageUrl !== url && d.videoUrl !== url) return n
+            const data = { ...d }
+            if (data.lastOutput === url) data.lastOutput = null
+            if (data.imageUrl === url) data.imageUrl = null
+            if (data.videoUrl === url) data.videoUrl = null
+            return { ...n, data }
+          }),
+        })
+        get().scheduleAutoSave()
+      }
     } catch { set({ assets: prev }) }
   },
 
@@ -845,6 +888,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         completedNodeIds: new Set(),
         runs: [],
         assets: [],
+        assetsLoaded: false,
         saveState: 'idle',
         activeRun: null,
       })
@@ -883,6 +927,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         // Different (unsaved) workflow — drop the previous one's panel state
         runs: [],
         assets: [],
+        assetsLoaded: false,
       })
       get().scheduleAutoSave()
     } catch { /**/ }
@@ -900,6 +945,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       completedNodeIds: new Set(),
       runs: [],
       assets: [],
+      assetsLoaded: false,
     })
     get().scheduleAutoSave()
   },

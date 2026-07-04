@@ -5,6 +5,7 @@ import { Crop, Play, Loader2, X } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useNodeHover } from "@/hooks/usenodehover";
 import { useNodeStatus } from "@/hooks/useNodeStatus";
+import OutputPreview from "./shared/OutputPreview";
 
 const NODE_COLOR = "#16A68D";
 
@@ -69,6 +70,13 @@ export default function CropImageNode({ selected, data, id }: NodeProps) {
     height: 10,
     border: `2px solid ${NODE_COLOR}CC`,
   };
+
+  const resultUrl =
+    typeof data.lastOutput === "string" && data.lastOutput.startsWith("http")
+      ? data.lastOutput
+      : null;
+  // Preview (fixed 160px) + gap-2 sit above the field rows when present
+  const handleOffset = resultUrl ? 168 : 0;
 
   const fields = [
     { label: "X %", key: "xPercent", handle: "x_percent", default: 0 },
@@ -153,11 +161,18 @@ export default function CropImageNode({ selected, data, id }: NodeProps) {
           <Crop size={13} style={{ color: NODE_COLOR }} />
           <span className={`text-xs font-medium ${textMain}`}>Crop Image</span>
         </div>
-        <div className="flex items-center gap-2 p-3">
-          <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Image</span>
-
-        </div>
         <div className="p-3 flex flex-col gap-2">
+          {resultUrl && (
+            <OutputPreview
+              url={resultUrl}
+              isDark={isDark}
+              name={`crop-${id}`}
+              height={160}
+            />
+          )}
+          <div className="flex items-center gap-2 h-4">
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Image</span>
+          </div>
           {fields.map(({ label, key, handle, default: def }) => (
             <div key={handle} className="flex items-center gap-2">
               <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
@@ -172,7 +187,7 @@ export default function CropImageNode({ selected, data, id }: NodeProps) {
                 onChange={(e) =>
                   updateNodeData(id, { [key]: Number(e.target.value) })
                 }
-                className={`flex-1 text-xs rounded p-1 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
+                className={`flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
               />
             </div>
           ))}
@@ -181,31 +196,31 @@ export default function CropImageNode({ selected, data, id }: NodeProps) {
           type="target"
           position={Position.Left}
           id="image_url"
-          style={{ top: "24%", ...tHandle }}
+          style={{ top: 55 + handleOffset, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="x_percent"
-          style={{ top: "44%", ...tHandle }}
+          style={{ top: 86 + handleOffset, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="y_percent"
-          style={{ top: "59%", ...tHandle }}
+          style={{ top: 124 + handleOffset, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="width_percent"
-          style={{ top: "74%", ...tHandle }}
+          style={{ top: 162 + handleOffset, ...tHandle }}
         />
         <Handle
           type="target"
           position={Position.Left}
           id="height_percent"
-          style={{ top: "89%", ...tHandle }}
+          style={{ top: 200 + handleOffset, ...tHandle }}
         />
         <Handle
           type="source"

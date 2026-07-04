@@ -30,6 +30,7 @@ const SKIPPED_ERROR = 'Skipped — a previous node failed.'
 const MEDIA_OUTPUT_TYPES: Record<string, 'image' | 'video'> = {
   cropImageNode: 'image',
   extractFrameNode: 'image',
+  resizeImageNode: 'image',
 }
 
 export const orchestratorTask = task({

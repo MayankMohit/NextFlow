@@ -9,6 +9,9 @@ import {
   Brain,
   Crop,
   Film,
+  Monitor,
+  Combine,
+  Scaling,
   LogOut,
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
@@ -51,6 +54,24 @@ const nodeButtons = [
     icon: Film,
     type: "extractFrameNode",
     description: "Extract video frame",
+  },
+  {
+    label: "Text Combine",
+    icon: Combine,
+    type: "textCombineNode",
+    description: "Merge texts with a template",
+  },
+  {
+    label: "Resize Image",
+    icon: Scaling,
+    type: "resizeImageNode",
+    description: "Resize / compress image",
+  },
+  {
+    label: "Output",
+    icon: Monitor,
+    type: "outputNode",
+    description: "Preview & download result",
   },
 ];
 
@@ -97,6 +118,12 @@ const getInitialData = (type: string) => {
       };
     case "extractFrameNode":
       return { label: "Extract Frame", timestamp: "0", status: "idle" };
+    case "outputNode":
+      return { label: "Output", lastOutput: null, status: "idle" };
+    case "textCombineNode":
+      return { label: "Text Combine", template: "", status: "idle" };
+    case "resizeImageNode":
+      return { label: "Resize Image", width: 512, fit: "cover", status: "idle" };
     default:
       return { label: type, status: "idle" };
   }

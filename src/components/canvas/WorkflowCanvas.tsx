@@ -21,6 +21,9 @@ import UploadVideoNode from '@/components/nodes/UploadVideoNode'
 import LLMNode from '@/components/nodes/LLMNode'
 import CropImageNode from '@/components/nodes/CropImageNode'
 import ExtractFrameNode from '@/components/nodes/ExtractFrameNode'
+import OutputNode from '@/components/nodes/OutputNode'
+import TextCombineNode from '@/components/nodes/TextCombineNode'
+import ResizeImageNode from '@/components/nodes/ResizeImageNode'
 import GradientEdge from '@/components/edges/GradientEdge'
 import { Scissors, Play, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -32,6 +35,9 @@ const nodeTypes = {
   llmNode: LLMNode,
   cropImageNode: CropImageNode,
   extractFrameNode: ExtractFrameNode,
+  outputNode: OutputNode,
+  textCombineNode: TextCombineNode,
+  resizeImageNode: ResizeImageNode,
 }
 
 const edgeTypes = {
@@ -46,6 +52,9 @@ const getInitialData = (type: string) => {
     case 'llmNode': return { label: 'LLM', model: 'gemini-3.1-flash-lite-preview', result: null, status: 'idle' }
     case 'cropImageNode': return { label: 'Crop Image', xPercent: 0, yPercent: 0, widthPercent: 100, heightPercent: 100, status: 'idle' }
     case 'extractFrameNode': return { label: 'Extract Frame', timestamp: '0', status: 'idle' }
+    case 'outputNode': return { label: 'Output', lastOutput: null, status: 'idle' }
+    case 'textCombineNode': return { label: 'Text Combine', template: '', status: 'idle' }
+    case 'resizeImageNode': return { label: 'Resize Image', width: 512, fit: 'cover', status: 'idle' }
     default: return { label: type, status: 'idle' }
   }
 }
@@ -57,6 +66,9 @@ const NODE_TYPES_LIST = [
   { type: 'llmNode', label: 'LLM' },
   { type: 'cropImageNode', label: 'Crop Image' },
   { type: 'extractFrameNode', label: 'Extract Frame' },
+  { type: 'textCombineNode', label: 'Text Combine' },
+  { type: 'resizeImageNode', label: 'Resize Image' },
+  { type: 'outputNode', label: 'Output' },
 ]
 
 // --- Connect-on-drop smart modal ---
@@ -68,6 +80,8 @@ const SOURCE_OUTPUT_MAP: Record<string, 'image' | 'video' | 'text'> = {
   cropImageNode: 'image',
   extractFrameNode: 'image',
   llmNode: 'text',
+  textCombineNode: 'text',
+  resizeImageNode: 'image',
 }
 
 type DropSuggestion = { nodeType: string; label: string; targetHandle?: string; sourceHandle?: string }
@@ -76,13 +90,18 @@ const OUTPUT_TO_TARGETS: Record<string, DropSuggestion[]> = {
   image: [
     { nodeType: 'llmNode', label: 'LLM', targetHandle: 'image_url' },
     { nodeType: 'cropImageNode', label: 'Crop Image', targetHandle: 'image_url' },
+    { nodeType: 'resizeImageNode', label: 'Resize Image', targetHandle: 'image_url' },
+    { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
   ],
   video: [
     { nodeType: 'extractFrameNode', label: 'Extract Frame', targetHandle: 'video_url' },
+    { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
   ],
   text: [
     { nodeType: 'llmNode', label: 'LLM — Prompt', targetHandle: 'user_message' },
     { nodeType: 'llmNode', label: 'LLM — System Prompt', targetHandle: 'system_prompt' },
+    { nodeType: 'textCombineNode', label: 'Text Combine', targetHandle: 'text_1' },
+    { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame — Timestamp', targetHandle: 'timestamp' },
     { nodeType: 'cropImageNode', label: 'Crop Image — X%', targetHandle: 'x_percent' },
     { nodeType: 'cropImageNode', label: 'Crop Image — Y%', targetHandle: 'y_percent' },
@@ -91,22 +110,38 @@ const OUTPUT_TO_TARGETS: Record<string, DropSuggestion[]> = {
   ],
 }
 
+const TEXT_SOURCES: DropSuggestion[] = [
+  { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
+  { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
+  { nodeType: 'textCombineNode', label: 'Text Combine', sourceHandle: 'output' },
+]
+
 const HANDLE_TO_SOURCES: Record<string, DropSuggestion[]> = {
   image_url: [
     { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
     { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
+    { nodeType: 'resizeImageNode', label: 'Resize Image', sourceHandle: 'output' },
   ],
   video_url: [
     { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
   ],
-  system_prompt: [
-    { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
+  system_prompt: TEXT_SOURCES,
+  user_message: TEXT_SOURCES,
+  text_1: TEXT_SOURCES,
+  text_2: TEXT_SOURCES,
+  text_3: TEXT_SOURCES,
+  text_4: TEXT_SOURCES,
+  // Output node accepts anything
+  input: [
     { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
-  ],
-  user_message: [
     { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
-    { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
+    { nodeType: 'textCombineNode', label: 'Text Combine', sourceHandle: 'output' },
+    { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
+    { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
+    { nodeType: 'resizeImageNode', label: 'Resize Image', sourceHandle: 'output' },
+    { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
+    { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
   ],
   timestamp: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
   x_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
@@ -371,9 +406,9 @@ export default function WorkflowCanvas() {
 
   const openAddModal = useCallback((clientX: number, clientY: number) => {
     const flow = screenToFlowPosition({ x: clientX, y: clientY })
-    // Clamp so the modal (≈176px × 220px) stays inside the viewport
+    // Clamp so the modal (≈176px × 300px) stays inside the viewport
     const x = Math.min(clientX, window.innerWidth - 184)
-    const y = Math.min(clientY, window.innerHeight - 228)
+    const y = Math.min(clientY, window.innerHeight - 308)
     setAddNodeCtx({ x, y, flowX: flow.x, flowY: flow.y })
   }, [screenToFlowPosition])
 
@@ -466,31 +501,24 @@ export default function WorkflowCanvas() {
     return () => window.removeEventListener('keydown', handler)
   }, [undo, redo, saveWorkflow, runNodes, getViewport, setViewport])
 
-  // Custom scroll: plain = pan vertical, shift = pan horizontal, ctrl/meta = zoom on cursor
+  // Faster pinch/ctrl+wheel zoom than React Flow's built-in (fixed slow speed,
+  // no prop to tune it). Non-zoom scrolls fall through to panOnScroll.
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const handler = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       e.stopPropagation()
       const { x, y, zoom } = getViewport()
-      if (e.ctrlKey || e.metaKey) {
-        // Zoom centred on mouse cursor
-        const rect = el.getBoundingClientRect()
-        const mouseX = e.clientX - rect.left
-        const mouseY = e.clientY - rect.top
-        // Flow-space coordinates under the mouse (invariant point)
-        const pivotX = (mouseX - x) / zoom
-        const pivotY = (mouseY - y) / zoom
-        const newZoom = Math.max(0.1, Math.min(4, zoom * Math.exp(-e.deltaY * 0.001)))
-        setViewport({ x: mouseX - pivotX * newZoom, y: mouseY - pivotY * newZoom, zoom: newZoom })
-      } else if (e.shiftKey) {
-        // Pan horizontal
-        setViewport({ x: x - e.deltaY, y, zoom })
-      } else {
-        // Pan vertical
-        setViewport({ x, y: y - e.deltaY, zoom })
-      }
+      const rect = el.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      // Flow-space coordinates under the mouse (invariant point)
+      const pivotX = (mouseX - x) / zoom
+      const pivotY = (mouseY - y) / zoom
+      const newZoom = Math.max(0.1, Math.min(4, zoom * Math.exp(-e.deltaY * 0.003)))
+      setViewport({ x: mouseX - pivotX * newZoom, y: mouseY - pivotY * newZoom, zoom: newZoom })
     }
     el.addEventListener('wheel', handler, { passive: false, capture: true })
     return () => el.removeEventListener('wheel', handler, { capture: true } as EventListenerOptions)
@@ -643,8 +671,11 @@ export default function WorkflowCanvas() {
         style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}
         defaultEdgeOptions={{ type: 'default' }}
         {...rfProps}
+        // Figma-style trackpad: two-finger swipe pans, pinch (ctrl+wheel) zooms
         zoomOnScroll={false}
-        panOnScroll={false}
+        panOnScroll
+        panOnScrollSpeed={0.8}
+        zoomOnPinch
         zoomOnDoubleClick={false}
         onPaneContextMenu={(e) => { e.preventDefault(); openAddModal(e.clientX, e.clientY) }}
       >

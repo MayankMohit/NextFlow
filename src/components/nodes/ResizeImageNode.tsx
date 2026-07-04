@@ -1,15 +1,17 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Film, Play, Loader2, X } from "lucide-react";
+import { Scaling, Play, Loader2, X } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useNodeHover } from "@/hooks/usenodehover";
 import { useNodeStatus } from "@/hooks/useNodeStatus";
 import OutputPreview from "./shared/OutputPreview";
 
-const NODE_COLOR = "#16A68D";
+const NODE_COLOR = "#0ea5e9";
 
-export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
+const FIT_OPTIONS = ["cover", "contain", "fill", "inside", "outside"] as const;
+
+export default function ResizeImageNode({ selected, data, id }: NodeProps) {
   const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
@@ -37,7 +39,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
   const borderColor = selected ? NODE_COLOR : isDark ? "#2a2a2a" : "#e0e0e0";
 
   const glowKeyframes = `
-    @keyframes extract-node-glow {
+    @keyframes resize-node-glow {
       0%, 100% {
         box-shadow: 0 0 0 1.5px ${NODE_COLOR}44, 0 0 14px 4px ${NODE_COLOR}28;
       }
@@ -50,22 +52,12 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
   const glowStyle: React.CSSProperties = isNodeRunning
     ? {
         borderColor: `${NODE_COLOR}aa`,
-        animation: 'extract-node-glow 1.8s ease-in-out infinite',
+        animation: "resize-node-glow 1.8s ease-in-out infinite",
       }
     : {
         borderColor,
         boxShadow: selected ? `0 0 0 1.5px ${NODE_COLOR}55` : undefined,
       };
-
-  const isConnected = (handle: string) =>
-    (data.connectedInputs as string[] | undefined)?.includes(handle);
-
-  const resultUrl =
-    typeof data.lastOutput === "string" && data.lastOutput.startsWith("http")
-      ? data.lastOutput
-      : null;
-  // Preview (fixed 160px) + gap-2 sit above the field rows when present
-  const handleOffset = resultUrl ? 168 : 0;
 
   const tHandle = {
     background: `${NODE_COLOR}50`,
@@ -80,6 +72,13 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
     border: `2px solid ${NODE_COLOR}CC`,
   };
 
+  const resultUrl =
+    typeof data.lastOutput === "string" && data.lastOutput.startsWith("http")
+      ? data.lastOutput
+      : null;
+  // Preview (fixed 160px) + gap-2 sit above the field rows when present
+  const handleOffset = resultUrl ? 168 : 0;
+
   return (
     <div
       className="relative"
@@ -89,7 +88,9 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
       {isNodeRunning && <style>{glowKeyframes}</style>}
       {typeof data.error === "string" && (
         <div className="absolute bottom-full left-0 right-0 z-10 mb-1 flex items-start gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500 text-white text-[11px] font-medium">
-          <span className="flex-1 wrap-break-word leading-snug">{data.error}</span>
+          <span className="flex-1 wrap-break-word leading-snug">
+            {data.error}
+          </span>
           <button
             className="nodrag shrink-0 mt-px hover:opacity-70 transition-opacity"
             onClick={() => updateNodeData(id, { error: undefined })}
@@ -98,6 +99,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
           </button>
         </div>
       )}
+
       {/* Hover run button */}
       {hovered && !isNodeRunning && (
         <button
@@ -143,57 +145,84 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
         <div
           className={`flex items-center gap-2 px-3 py-2 border-b ${hdrBorder}`}
         >
-          <Film size={13} style={{ color: NODE_COLOR }} />
+          <Scaling size={13} style={{ color: NODE_COLOR }} />
           <span className={`text-xs font-medium ${textMain}`}>
-            Extract Frame
+            Resize Image
           </span>
         </div>
+
         <div className="p-3 flex flex-col gap-2">
           {resultUrl && (
             <OutputPreview
               url={resultUrl}
               isDark={isDark}
-              name={`frame-${id}`}
+              name={`resized-${id}`}
               height={160}
             />
           )}
-          {/* Video input row */}
           <div className="flex items-center gap-2 h-4">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Video</span>
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Image</span>
           </div>
 
-          {/* Timestamp input */}
           <div className="flex items-center gap-2">
-            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
-              Timestamp
-            </span>
-
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Width</span>
             <input
-              type="text"
-              disabled={isConnected("timestamp")}
-              defaultValue={(data.timestamp as string) ?? "0"}
+              type="number"
+              min={1}
+              defaultValue={(data.width as number) ?? 512}
               onChange={(e) =>
-                updateNodeData(id, { timestamp: e.target.value })
+                updateNodeData(id, {
+                  width: Number(e.target.value) || undefined,
+                })
               }
-              placeholder="0 or 50%"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
+              placeholder="512"
+              className={`flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
             />
           </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
+              Height
+            </span>
+            <input
+              type="number"
+              min={1}
+              defaultValue={(data.height as number) ?? ""}
+              onChange={(e) =>
+                updateNodeData(id, {
+                  height: Number(e.target.value) || undefined,
+                })
+              }
+              placeholder="auto"
+              className={`flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Fit</span>
+            <select
+              defaultValue={(data.fit as string) ?? "cover"}
+              onChange={(e) => updateNodeData(id, { fit: e.target.value })}
+              className={`nodrag flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+            >
+              {FIT_OPTIONS.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <p className={`text-xs ${hintColor}`}>
-            seconds or percentage e.g. 50%
+            leave height empty to keep aspect ratio
           </p>
         </div>
+
         <Handle
           type="target"
           position={Position.Left}
-          id="video_url"
+          id="image_url"
           style={{ top: 55 + handleOffset, ...tHandle }}
-        />
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="timestamp"
-          style={{ top: 86 + handleOffset, ...tHandle }}
         />
         <Handle
           type="source"

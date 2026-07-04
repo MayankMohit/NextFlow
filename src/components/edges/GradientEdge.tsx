@@ -9,6 +9,9 @@ const NODE_COLORS: Record<string, string> = {
   llmNode: '#8f29ef',
   cropImageNode: '#16A68D',
   extractFrameNode: '#16A68D',
+  textCombineNode: '#f97316',
+  resizeImageNode: '#0ea5e9',
+  outputNode: '#ec4899',
 }
 
 const DEFAULT_COLOR = '#7c3aed'

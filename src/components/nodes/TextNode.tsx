@@ -54,8 +54,8 @@ export default function TextNode({ data, selected, id }: NodeProps) {
   const hdrBorder = isDark ? 'border-[#2a2a2a]' : 'border-[#e8e8e8]'
   const textMain  = isDark ? 'text-white' : 'text-[#111]'
   const inputBg   = isDark
-    ? 'bg-[#141414] border-[#2a2a2a] text-white placeholder:text-[#555]'
-    : 'bg-[#f5f5f5] border-[#e0e0e0] text-[#111] placeholder:text-[#bbb]'
+    ? 'bg-[#141414] border-[#2a2a2a] text-white placeholder:text-[#444]'
+    : 'bg-[#f5f5f5] border-[#e0e0e0] text-[#111] placeholder:text-[#ccc]'
 
   const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
 
@@ -176,7 +176,7 @@ export default function TextNode({ data, selected, id }: NodeProps) {
               ref={textareaRef}
               placeholder="Enter text..."
               defaultValue={(data.text as string) ?? ''}
-              className={`textnode-textarea w-full text-xs rounded p-2 outline-none resize-none border focus:border-[#fec50b] transition-colors overflow-y-auto ${inputBg}`}
+              className={`textnode-textarea nowheel w-full text-xs rounded p-2 outline-none resize-none border focus:border-[#fec50b] transition-colors overflow-y-auto ${inputBg}`}
               style={{ height: taHeight, lineHeight: '1.5' }}
               onChange={e => updateNodeData(id, { text: e.target.value })}
             />
