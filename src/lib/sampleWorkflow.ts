@@ -2,6 +2,11 @@ import type { Node, Edge } from '@xyflow/react'
 
 const EDGE_STYLE = { stroke: '#7c3aed', strokeWidth: 2 }
 
+// Preloaded demo assets — stable Vercel Blob URLs. To replace: swap the files
+// in public/demo/ and rerun `node --env-file=.env scripts/seed-demo-assets.js`
+const DEMO_IMAGE_URL = 'https://ckf9fx3operclyel.public.blob.vercel-storage.com/demo/demo-product.webp'
+const DEMO_VIDEO_URL = 'https://ckf9fx3operclyel.public.blob.vercel-storage.com/demo/demo-video.mp4'
+
 export const SAMPLE_WORKFLOW = {
   name: 'Product Marketing Kit Generator',
   nodes: [
@@ -12,7 +17,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 80, y: 60 },
       data: {
         label: 'Upload Image',
-        imageUrl: null,
+        imageUrl: DEMO_IMAGE_URL,
         status: 'idle',
       },
     },
@@ -69,7 +74,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 82.71, y: 632.95 },
       data: {
         label: 'Upload Video',
-        videoUrl: null,
+        videoUrl: DEMO_VIDEO_URL,
         status: 'idle',
       },
     },
