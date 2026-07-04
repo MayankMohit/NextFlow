@@ -189,6 +189,18 @@ function ProjectName() {
   )
 }
 
+function SaveIndicator() {
+  const saveState = useWorkflowStore(state => state.saveState)
+  const theme = useWorkflowStore(state => state.theme)
+  const isDark = theme === 'dark'
+  if (saveState === 'idle') return null
+  const label = saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : 'Save failed'
+  const color = saveState === 'error'
+    ? 'text-red-400'
+    : isDark ? 'text-[#666]' : 'text-[#aaa]'
+  return <span className={`text-xs whitespace-nowrap pr-1 ${color}`}>{label}</span>
+}
+
 function ThemeToggle() {
   const { theme, toggleTheme } = useWorkflowStore();
   const isDark = theme === 'dark'
@@ -226,6 +238,7 @@ export default function TopBar() {
       <div className={`flex items-center gap-2 border  rounded-xl px-2 py-2 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-120`}>
         <LogoDropdown />
         <ProjectName />
+        <SaveIndicator />
       </div>
       <div className=" -mt-6 flex items-center gap-2 mr-3">
         <ThemeToggle />

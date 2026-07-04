@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npx tsc *)",
       "Bash(python -c ' *)",
-      "Bash(powershell -Command 'Add-Type -AssemblyName System.Windows.Forms; $text = [System.IO.File]::ReadAllBytes\\('\\\\''C:/Users/mayan/OneDrive/Desktop/Screenshot 2026-04-23 230218.pdf'\\\\''\\); Write-Output '\\\\''File size: '\\\\'' + $text.Length')"
+      "Bash(powershell -Command 'Add-Type -AssemblyName System.Windows.Forms; $text = [System.IO.File]::ReadAllBytes\\('\\\\''C:/Users/mayan/OneDrive/Desktop/Screenshot 2026-04-23 230218.pdf'\\\\''\\); Write-Output '\\\\''File size: '\\\\'' + $text.Length')",
+      "PowerShell(npx eslint src/store/workflowStore.ts; npx tsc --noEmit)"
     ]
   }
 }

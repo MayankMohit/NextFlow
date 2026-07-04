@@ -28,7 +28,7 @@ export interface NodeRun {
   id: string
   nodeId: string
   nodeType: string
-  status: 'success' | 'failed' | 'running'
+  status: 'success' | 'failed' | 'running' | 'skipped'
   inputs?: Record<string, unknown>
   outputs?: Record<string, unknown>
   error?: string
@@ -193,51 +193,73 @@ function maybeAddAsset(
   })
 }
 
-// ---------------------------------------------------------------------------
-// Single API call for one layer of nodes
-// ---------------------------------------------------------------------------
-
-async function runLayer(
-  layerNodeIds: string[],
-  allNodes: Node[],
-  allEdges: Edge[],
-  workflowId: string,
-  scope: 'full' | 'partial' | 'single',
-  passthroughNodeIds?: string[],
-  existingRunId?: string,
-): Promise<{
-  ok: boolean
-  runId?: string
-  nodeOutputs: Record<string, unknown>
-  nodeRuns: Array<{ nodeId: string; status: string; error?: string }>
-  newWorkflowId?: string
-}> {
-  const res = await fetch(`/api/workflow/${workflowId}/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      nodes: allNodes,
-      edges: allEdges,
-      scope,
-      selectedNodeIds: layerNodeIds,
-      passthroughNodeIds,
-      existingRunId,
-    }),
-  })
-
-  if (!res.ok) {
-    try { await res.json() } catch { /**/ }
-    return { ok: false, nodeOutputs: {}, nodeRuns: [] }
+// Rebuild the assets panel from a loaded workflow — media URLs survive the
+// refresh inside the nodes JSON (imageUrl/videoUrl for uploads, lastOutput
+// for executed image nodes), the in-memory assets list does not.
+function assetsFromNodes(nodes: Node[]): Asset[] {
+  const assets: Asset[] = []
+  for (const n of nodes) {
+    const d = n.data as Record<string, unknown>
+    const url =
+      n.type === 'uploadImageNode' ? d.imageUrl :
+      n.type === 'uploadVideoNode' ? d.videoUrl :
+      ['cropImageNode', 'extractFrameNode'].includes(n.type ?? '') ? d.lastOutput :
+      undefined
+    if (typeof url !== 'string' || !url.startsWith('http')) continue
+    assets.push({
+      id: `${n.id}-${url}`,
+      nodeId: n.id,
+      type: n.type === 'uploadVideoNode' ? 'video' : 'image',
+      url,
+      createdAt: new Date().toISOString(),
+      meta: { model: d.model as string | undefined },
+    })
   }
+  return assets.reverse() // newest-added nodes first, matching addAsset order
+}
 
-  const data = await res.json()
-  return {
-    ok: true,
-    runId: data.runId,
-    nodeOutputs: data.nodeOutputs ?? {},
-    nodeRuns: data.nodeRuns ?? [],
-    newWorkflowId: data.workflowId,
+// ---------------------------------------------------------------------------
+// Run helpers — passthrough nodes (text/upload) never execute on the server,
+// their data is used directly.
+// ---------------------------------------------------------------------------
+
+const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
+
+function splitPassthrough(nodes: Node[], ids: string[]) {
+  const passthroughIds: string[] = []
+  const executableIds: string[] = []
+  for (const id of ids) {
+    const n = nodes.find(n => n.id === id)
+    if (!n) continue
+    if (PASSTHROUGH.has(n.type ?? '')) passthroughIds.push(id)
+    else executableIds.push(id)
   }
+  return { passthroughIds, executableIds }
+}
+
+// Scope compares executables that ran against ALL executables in the workflow
+function computeScope(nodes: Node[], executableIds: string[]): 'full' | 'partial' | 'single' {
+  const allExecutables = nodes.filter(n => !PASSTHROUGH.has(n.type ?? '')).map(n => n.id)
+  return allExecutables.every(id => executableIds.includes(id)) ? 'full'
+    : executableIds.length === 1 ? 'single'
+    : 'partial'
+}
+
+// Live per-node progress streamed from the orchestrator via Trigger.dev
+// Realtime metadata (mirrors NodeRunMeta in src/trigger/orchestratorTask.ts —
+// kept separate so the client bundle never imports server task code).
+export interface NodeRunMeta {
+  status: 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+  output?: unknown
+  error?: string
+  duration?: number
+}
+
+export interface ActiveRun {
+  runId: string
+  triggerRunId: string
+  publicAccessToken: string
+  targetNodeIds: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +286,8 @@ interface WorkflowStore {
   setWorkflowId: (id: string) => void
   loadWorkflow: (id: string) => Promise<void>
   saveWorkflow: () => Promise<void>
+  scheduleAutoSave: () => void
+  saveState: 'idle' | 'saving' | 'saved' | 'error'
   isSaving: boolean
   isLoading: boolean
   theme: 'dark' | 'light'
@@ -275,6 +299,16 @@ interface WorkflowStore {
   // ── Global run (keyboard shortcut / full-workflow) ─────────────────────────
   isRunning: boolean
   runWorkflow: (scope?: 'full' | 'partial' | 'single', selectedNodeIds?: string[]) => Promise<void>
+
+  // ── Run lifecycle (single Trigger.dev run + Realtime progress) ─────────────
+  /** The run currently streaming progress, or null. Only one run at a time. */
+  activeRun: ActiveRun | null
+  /** Marks passthrough nodes complete, POSTs once, stores the Realtime handle. */
+  startRun: (targetNodeIds: string[]) => Promise<void>
+  /** Applies streamed per-node statuses from the orchestrator's metadata. */
+  applyRunProgress: (nodesMeta: Record<string, NodeRunMeta>) => void
+  /** Ends the active run; failedMessage marks still-running nodes as failed. */
+  finishRun: (failedMessage?: string) => void
 
   // ── Per-node / group run ───────────────────────────────────────────────────
   runningNodeIds: Set<string>
@@ -313,12 +347,27 @@ interface WorkflowStore {
 
 const MAX_HISTORY = 50
 
+// ---------------------------------------------------------------------------
+// Auto-save — debounced so bursts of changes (dragging, typing) collapse into
+// a single PUT once the canvas has been idle for a moment.
+// ---------------------------------------------------------------------------
+
+const AUTO_SAVE_DELAY_MS = 1500
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   nodes: [],
   edges: [],
 
-  onNodesChange: (changes) => set({ nodes: applyNodeChanges(changes, get().nodes) }),
-  onEdgesChange: (changes) => set({ edges: applyEdgeChanges(changes, get().edges) }),
+  onNodesChange: (changes) => {
+    set({ nodes: applyNodeChanges(changes, get().nodes) })
+    // Selection and dimension changes are view-only — no need to persist them
+    if (changes.some(c => c.type !== 'select' && c.type !== 'dimensions')) get().scheduleAutoSave()
+  },
+  onEdgesChange: (changes) => {
+    set({ edges: applyEdgeChanges(changes, get().edges) })
+    if (changes.some(c => c.type !== 'select')) get().scheduleAutoSave()
+  },
 
   onConnect: (connection) => {
     const { nodes, edges } = get()
@@ -331,6 +380,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     if (hasCycle(edges, newEdge)) return
     get().pushHistory()
     set({ edges: addEdge(newEdge, edges) })
+    get().scheduleAutoSave()
     const targetNode = nodes.find(n => n.id === connection.target)
     if (targetNode && connection.targetHandle) {
       const existing = (targetNode.data.connectedInputs as string[] | undefined) ?? []
@@ -340,10 +390,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     }
   },
 
-  addNode: (node) => { get().pushHistory(); set({ nodes: [...get().nodes, node] }) },
+  addNode: (node) => { get().pushHistory(); set({ nodes: [...get().nodes, node] }); get().scheduleAutoSave() },
 
   updateNodeData: (nodeId, data) => {
     set({ nodes: get().nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n) })
+    get().scheduleAutoSave()
   },
 
   deleteNode: (nodeId) => {
@@ -352,6 +403,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       nodes: get().nodes.filter(n => n.id !== nodeId),
       edges: get().edges.filter(e => e.source !== nodeId && e.target !== nodeId),
     })
+    get().scheduleAutoSave()
   },
 
   past: [], future: [],
@@ -377,6 +429,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       nodes: snapshot.nodes,
       edges: snapshot.edges,
     })
+    get().scheduleAutoSave()
   },
 
   redo: () => {
@@ -389,11 +442,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       nodes: snapshot.nodes,
       edges: snapshot.edges,
     })
+    get().scheduleAutoSave()
   },
 
-  workflowId: 'new', workflowName: 'Untitled', isSaving: false, isLoading: false,
+  workflowId: 'new', workflowName: 'Untitled', isSaving: false, isLoading: false, saveState: 'idle',
 
-  setWorkflowName: (name) => set({ workflowName: name }),
+  setWorkflowName: (name) => { set({ workflowName: name }); get().scheduleAutoSave() },
   setWorkflowId: (id) => set({ workflowId: id }),
 
   loadWorkflow: async (id) => {
@@ -402,34 +456,66 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const res = await fetch(`/api/workflow/${id}`)
       if (!res.ok) return
       const data = await res.json()
+      // A save may have been interrupted mid-run — 'running' is never a valid
+      // status after a fresh load, and completed nodes must count as completed
+      // so downstream partial runs are allowed again.
+      const nodes: Node[] = (data.nodes ?? []).map((n: Node) =>
+        (n.data as Record<string, unknown>)?.status === 'running'
+          ? { ...n, data: { ...n.data, status: 'idle' } }
+          : n,
+      )
+      const completedNodeIds = new Set(
+        nodes
+          .filter(n => (n.data as Record<string, unknown>)?.status === 'success')
+          .map(n => n.id),
+      )
       set({
         workflowId: data.id,
         workflowName: data.name ?? 'Untitled',
-        nodes: data.nodes ?? [],
+        nodes,
         edges: (data.edges ?? []).map((e: Edge) => ({ ...e, type: 'default', animated: false, style: undefined })),
         past: [], future: [],
         runningNodeIds: new Set(),
-        completedNodeIds: new Set(),
+        completedNodeIds,
+        saveState: 'idle',
+        assets: assetsFromNodes(nodes),
       })
       if (id !== 'new') get().fetchRuns()
     } finally { set({ isLoading: false }) }
   },
 
+  scheduleAutoSave: () => {
+    if (get().isLoading) return
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => {
+      autoSaveTimer = null
+      void get().saveWorkflow()
+    }, AUTO_SAVE_DELAY_MS)
+  },
+
   saveWorkflow: async () => {
-    const { workflowId, workflowName, nodes, edges } = get()
-    set({ isSaving: true })
+    const { workflowId, workflowName, nodes, edges, isSaving } = get()
+    // A save is already in flight (e.g. it's still creating the workflow row
+    // for id 'new') — retry after it finishes instead of double-saving.
+    if (isSaving) { get().scheduleAutoSave(); return }
+    // Nothing to persist on a blank unsaved canvas
+    if (workflowId === 'new' && nodes.length === 0) return
+    set({ isSaving: true, saveState: 'saving' })
     try {
       const res = await fetch(`/api/workflow/${workflowId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: workflowName, nodes, edges }),
       })
-      if (!res.ok) return
+      if (!res.ok) { set({ saveState: 'error' }); return }
       const data = await res.json()
       if (workflowId === 'new') {
         set({ workflowId: data.id })
         window.history.replaceState({}, '', `/workflow/${data.id}`)
       }
+      set({ saveState: 'saved' })
+    } catch {
+      set({ saveState: 'error' })
     } finally { set({ isSaving: false }) }
   },
 
@@ -448,56 +534,147 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   isRunning: false,
 
   runWorkflow: async (scope = 'full', selectedNodeIds) => {
-    const { workflowId, nodes, edges, updateNodeData, fetchRuns, addAsset } = get()
-    set({ isRunning: true })
+    const { nodes } = get()
     const targetIds = scope === 'full' ? nodes.map(n => n.id) : (selectedNodeIds ?? [])
-    const targetNodes = nodes.filter(n => targetIds.includes(n.id))
+    await get().startRun(targetIds)
+  },
 
-    set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...targetIds]) }))
-    for (const id of targetIds) updateNodeData(id, { status: 'running', error: undefined })
+  // ── Run lifecycle ──────────────────────────────────────────────────────────
+  activeRun: null,
+
+  startRun: async (targetNodeIds: string[]) => {
+    if (get().activeRun) return // one run at a time
+    const { nodes, edges, updateNodeData } = get()
+
+    const { passthroughIds, executableIds } = splitPassthrough(nodes, targetNodeIds)
+
+    for (const id of passthroughIds) {
+      updateNodeData(id, { status: 'success' })
+      set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
+    }
+    if (executableIds.length === 0) return
+
+    const scope = computeScope(nodes, executableIds)
+
+    // Instant feedback: glow the first layer until live metadata takes over
+    const execNodes = nodes.filter(n => executableIds.includes(n.id))
+    const firstLayer = new Set((topoLayers(execNodes, edges)[0] ?? []).map(n => n.id))
+    for (const id of executableIds) {
+      updateNodeData(id, { status: firstLayer.has(id) ? 'running' : 'idle', error: undefined })
+    }
+    set(s => ({ isRunning: true, runningNodeIds: new Set([...s.runningNodeIds, ...firstLayer]) }))
+
+    const failAll = (message: string) => {
+      for (const id of executableIds) updateNodeData(id, { status: 'failed', error: message })
+      set(s => {
+        const next = new Set(s.runningNodeIds)
+        executableIds.forEach(id => next.delete(id))
+        return { isRunning: false, runningNodeIds: next, activeRun: null }
+      })
+    }
 
     try {
-      const res = await fetch(`/api/workflow/${workflowId}/run`, {
+      const res = await fetch(`/api/workflow/${get().workflowId}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nodes, edges, scope, selectedNodeIds }),
+        body: JSON.stringify({
+          nodes: get().nodes,
+          edges,
+          scope,
+          targetNodeIds: executableIds,
+          passthroughNodeIds: passthroughIds,
+        }),
       })
-      if (!res.ok) {
-        for (const id of targetIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
-        return
-      }
+      if (!res.ok) { failAll('Run failed to start'); return }
       const data = await res.json()
-      if (workflowId === 'new' && data.workflowId) {
+      if (get().workflowId === 'new' && data.workflowId) {
         set({ workflowId: data.workflowId })
         window.history.replaceState({}, '', `/workflow/${data.workflowId}`)
       }
-      const nodeOutputs: Record<string, unknown> = data.nodeOutputs ?? {}
-      const nodeRuns: Array<{ nodeId: string; status: string; error?: string }> = data.nodeRuns ?? []
-      for (const nr of nodeRuns) {
-        const output = nodeOutputs[nr.nodeId]
-        const node = targetNodes.find(n => n.id === nr.nodeId)
-        updateNodeData(nr.nodeId, {
-          status: nr.status,
-          result: typeof output === 'string' ? output : undefined,
-          lastOutput: output ?? null,
-          error: nr.error,
-        })
-        if (nr.status === 'success' && node) {
-          maybeAddAsset(nr.nodeId, node.type, output, node.data as Record<string, unknown>, addAsset)
-        }
-      }
-      const completed = nodeRuns.filter(r => r.status === 'success').map(r => r.nodeId)
-      if (completed.length) set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, ...completed]) }))
-      await fetchRuns()
-    } catch (err) {
-      for (const id of targetIds) updateNodeData(id, { status: 'failed', error: String(err) })
-    } finally {
-      set(s => {
-        const next = new Set(s.runningNodeIds)
-        targetIds.forEach(id => next.delete(id))
-        return { isRunning: false, runningNodeIds: next }
+      if (!data.triggerRunId || !data.publicAccessToken) { failAll('Run failed to start'); return }
+      set({
+        activeRun: {
+          runId: data.runId,
+          triggerRunId: data.triggerRunId,
+          publicAccessToken: data.publicAccessToken,
+          targetNodeIds: executableIds,
+        },
       })
+      // Safety net if Realtime never delivers a terminal event
+      // (orchestrator maxDuration is 600s)
+      const startedRunId: string = data.runId
+      setTimeout(() => {
+        if (get().activeRun?.runId === startedRunId) get().finishRun('Run timed out')
+      }, 11 * 60 * 1000)
+    } catch (err) {
+      failAll(String(err))
     }
+  },
+
+  applyRunProgress: (nodesMeta) => {
+    const { updateNodeData, addAsset } = get()
+    const running = new Set<string>()
+
+    for (const [nodeId, meta] of Object.entries(nodesMeta)) {
+      const node = get().nodes.find(n => n.id === nodeId)
+      if (!node) continue
+      const current = node.data.status
+      switch (meta.status) {
+        case 'pending':
+          if (current !== 'idle') updateNodeData(nodeId, { status: 'idle', error: undefined })
+          break
+        case 'running':
+          running.add(nodeId)
+          if (current !== 'running') updateNodeData(nodeId, { status: 'running', error: undefined })
+          break
+        case 'success':
+          if (current !== 'success') {
+            updateNodeData(nodeId, {
+              status: 'success',
+              result: typeof meta.output === 'string' ? meta.output : undefined,
+              lastOutput: meta.output ?? null,
+              error: undefined,
+            })
+            set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, nodeId]) }))
+            maybeAddAsset(nodeId, node.type, meta.output, node.data as Record<string, unknown>, addAsset)
+          }
+          break
+        case 'failed':
+          if (current !== 'failed') updateNodeData(nodeId, { status: 'failed', error: meta.error ?? 'Failed' })
+          break
+        case 'skipped':
+          if (node.data.error !== meta.error) updateNodeData(nodeId, { status: 'idle', error: meta.error })
+          break
+      }
+    }
+
+    // Within the active run only the nodes the orchestrator reports as
+    // running glow; nodes outside the run are left untouched.
+    set(s => {
+      const target = new Set(s.activeRun?.targetNodeIds ?? [])
+      const next = new Set([...s.runningNodeIds].filter(id => !target.has(id)))
+      running.forEach(id => next.add(id))
+      return { runningNodeIds: next }
+    })
+  },
+
+  finishRun: (failedMessage) => {
+    const active = get().activeRun
+    if (!active) return
+    const { updateNodeData } = get()
+    // A crash can end the run while nodes are still marked running
+    for (const id of active.targetNodeIds) {
+      const n = get().nodes.find(n => n.id === id)
+      if (n?.data.status === 'running') {
+        updateNodeData(id, { status: 'failed', error: failedMessage ?? 'Run ended unexpectedly' })
+      }
+    }
+    set(s => {
+      const next = new Set(s.runningNodeIds)
+      active.targetNodeIds.forEach(id => next.delete(id))
+      return { isRunning: false, runningNodeIds: next, activeRun: null }
+    })
+    get().fetchRuns()
   },
 
   // ── Per-node run state ─────────────────────────────────────────────────────
@@ -517,7 +694,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
     // Passthrough nodes (text, upload) are always considered "completed"
     // because they don't need a server run — their data is already in node.data
-    const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
     return incomingEdges.every(e => {
       if (completedNodeIds.has(e.source)) return true
       const srcNode = nodes.find(n => n.id === e.source)
@@ -526,14 +702,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // runNode — runs the clicked node plus all downstream nodes in one API call.
-  // One call = one WorkflowRun record, no duplicate "partial" history entries.
+  // runNode — runs the clicked node plus all downstream nodes (one run).
   // ---------------------------------------------------------------------------
   runNode: async (startNodeId: string) => {
-    const { nodes, edges, updateNodeData, fetchRuns, addAsset, canNodeRun } = get()
-    let { workflowId } = get()
+    const { nodes, edges, updateNodeData, canNodeRun } = get()
 
-    if (get().runningNodeIds.has(startNodeId)) return
+    if (get().runningNodeIds.has(startNodeId) || get().activeRun) return
 
     if (!canNodeRun(startNodeId)) {
       updateNodeData(startNodeId, {
@@ -543,132 +717,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       return
     }
 
-    const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
-
     // All nodes reachable from startNode (inclusive)
-    const chainIds = reachableFrom([startNodeId], edges, nodes)
-
-    // Passthrough nodes need no server call — mark them complete immediately
-    const passthroughIds = chainIds.filter(id => {
-      const n = nodes.find(n => n.id === id)
-      return n && PASSTHROUGH.has(n.type ?? '')
-    })
-    const executableIds = chainIds.filter(id => !passthroughIds.includes(id))
-
-    for (const id of passthroughIds) {
-      updateNodeData(id, { status: 'success' })
-      set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
-    }
-
-    if (executableIds.length === 0) return
-
-    // Scope: compare executables that ran against ALL executables in the workflow.
-    // Passthrough nodes (text/upload) don't need server execution so they don't
-    // affect whether this was a "full" run.
-    const allWorkflowExecutables = nodes
-      .filter(n => !PASSTHROUGH.has(n.type ?? ''))
-      .map(n => n.id)
-    const scope: 'full' | 'partial' | 'single' =
-      allWorkflowExecutables.every(id => executableIds.includes(id)) ? 'full'
-      : executableIds.length === 1 ? 'single'
-      : 'partial'
-
-    // Sort executable chain into layers for per-layer glow animation
-    const execChainNodes = nodes.filter(n => executableIds.includes(n.id))
-    const execLayers = topoLayers(execChainNodes, edges)
-
-    // Mark all executable nodes idle so non-current layers don't glow
-    for (const id of executableIds) updateNodeData(id, { status: 'idle', error: undefined })
-
-    // Shared across all layer calls — first call creates the WorkflowRun, rest append to it
-    let sharedRunId: string | undefined
-
-    try {
-      for (let li = 0; li < execLayers.length; li++) {
-        const layerIds = execLayers[li].map(n => n.id)
-
-        // Only this layer glows
-        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...layerIds]) }))
-        for (const id of layerIds) updateNodeData(id, { status: 'running', error: undefined })
-
-        // Passthrough NodeRuns are only sent on the first API call (they create the run)
-        const isFirst = sharedRunId === undefined
-        // Use fresh nodes from store so each layer sees lastOutput set by previous layers
-        const result = await runLayer(
-          layerIds, get().nodes, edges, workflowId, scope,
-          isFirst ? passthroughIds : undefined,
-          sharedRunId,
-        )
-
-        if (result.runId) sharedRunId = result.runId
-        if (result.newWorkflowId && workflowId === 'new') {
-          workflowId = result.newWorkflowId
-          set({ workflowId: result.newWorkflowId })
-          window.history.replaceState({}, '', `/workflow/${result.newWorkflowId}`)
-        }
-
-        // Stop glowing this layer
-        set(s => {
-          const next = new Set(s.runningNodeIds)
-          layerIds.forEach(id => next.delete(id))
-          return { runningNodeIds: next }
-        })
-
-        if (!result.ok) {
-          for (const id of layerIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
-          for (let si = li + 1; si < execLayers.length; si++)
-            for (const n of execLayers[si]) updateNodeData(n.id, { status: 'idle' })
-          return
-        }
-
-        let hadFailure = false
-        for (const nr of result.nodeRuns) {
-          const output = result.nodeOutputs[nr.nodeId]
-          const node = get().nodes.find(n => n.id === nr.nodeId)
-          updateNodeData(nr.nodeId, {
-            status: nr.status,
-            result: typeof output === 'string' ? output : undefined,
-            lastOutput: output ?? null,
-            error: nr.error,
-          })
-          if (nr.status === 'success') {
-            set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, nr.nodeId]) }))
-            if (node) maybeAddAsset(nr.nodeId, node.type, output, node.data as Record<string, unknown>, addAsset)
-          } else {
-            hadFailure = true
-          }
-        }
-
-        if (hadFailure) {
-          for (let si = li + 1; si < execLayers.length; si++)
-            for (const n of execLayers[si])
-              updateNodeData(n.id, { status: 'idle', error: 'Skipped — a previous node failed.' })
-          return
-        }
-      }
-
-      await fetchRuns()
-    } catch (err) {
-      for (const id of executableIds) updateNodeData(id, { status: 'failed', error: String(err) })
-    } finally {
-      set(s => {
-        const next = new Set(s.runningNodeIds)
-        executableIds.forEach(id => next.delete(id))
-        return { runningNodeIds: next }
-      })
-    }
+    await get().startRun(reachableFrom([startNodeId], edges, nodes))
   },
 
   // ---------------------------------------------------------------------------
-  // runNodes — runs a selected group in one API call (one WorkflowRun record).
+  // runNodes — runs only the explicitly selected nodes (one run); the
+  // orchestrator resolves their internal dependency order server-side.
   // ---------------------------------------------------------------------------
   runNodes: async (nodeIds: string[]) => {
-    const { nodes, edges, updateNodeData, fetchRuns, addAsset } = get()
-    let { workflowId } = get()
+    if (nodeIds.length === 0 || get().activeRun) return
+    const { nodes, edges, updateNodeData } = get()
 
-    if (nodeIds.length === 0) return
-
-    const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
     const selectionSet = new Set(nodeIds.filter(id => nodes.find(n => n.id === id)))
     if (selectionSet.size === 0) return
 
@@ -695,114 +755,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       })
     }
 
-    if (toRun.length === 0) return
-
-    const executable = toRun.filter(id => !get().runningNodeIds.has(id))
-    if (executable.length === 0) return
-
-    // Passthrough nodes within selection — mark complete immediately
-    const passthroughIds = executable.filter(id => {
-      const n = nodes.find(n => n.id === id)
-      return n && PASSTHROUGH.has(n.type ?? '')
-    })
-    const executableIds = executable.filter(id => !passthroughIds.includes(id))
-
-    for (const id of passthroughIds) {
-      updateNodeData(id, { status: 'success' })
-      set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, id]) }))
-    }
-
-    if (executableIds.length === 0) return
-
-    // Scope: compare executables that ran against ALL executables in the workflow
-    const allWorkflowExecutables = nodes
-      .filter(n => !PASSTHROUGH.has(n.type ?? ''))
-      .map(n => n.id)
-    const scope: 'full' | 'partial' | 'single' =
-      allWorkflowExecutables.every(id => executableIds.includes(id)) ? 'full'
-      : executableIds.length === 1 ? 'single'
-      : 'partial'
-
-    // Sort into layers for per-layer glow
-    const execSelNodes = nodes.filter(n => executableIds.includes(n.id))
-    const execSelEdges = edges.filter(e => executableIds.includes(e.source) && executableIds.includes(e.target))
-    const execSelLayers = topoLayers(execSelNodes, execSelEdges)
-
-    for (const id of executableIds) updateNodeData(id, { status: 'idle', error: undefined })
-
-    let sharedRunId: string | undefined
-
-    try {
-      for (let li = 0; li < execSelLayers.length; li++) {
-        const layerIds = execSelLayers[li].map(n => n.id)
-
-        set(s => ({ runningNodeIds: new Set([...s.runningNodeIds, ...layerIds]) }))
-        for (const id of layerIds) updateNodeData(id, { status: 'running', error: undefined })
-
-        const isFirst = sharedRunId === undefined
-        // Use fresh nodes from store so each layer sees lastOutput set by previous layers
-        const result = await runLayer(
-          layerIds, get().nodes, edges, workflowId, scope,
-          isFirst ? passthroughIds : undefined,
-          sharedRunId,
-        )
-
-        if (result.runId) sharedRunId = result.runId
-        if (result.newWorkflowId && workflowId === 'new') {
-          workflowId = result.newWorkflowId
-          set({ workflowId: result.newWorkflowId })
-          window.history.replaceState({}, '', `/workflow/${result.newWorkflowId}`)
-        }
-
-        set(s => {
-          const next = new Set(s.runningNodeIds)
-          layerIds.forEach(id => next.delete(id))
-          return { runningNodeIds: next }
-        })
-
-        if (!result.ok) {
-          for (const id of layerIds) updateNodeData(id, { status: 'failed', error: 'Run failed' })
-          for (let si = li + 1; si < execSelLayers.length; si++)
-            for (const n of execSelLayers[si]) updateNodeData(n.id, { status: 'idle' })
-          return
-        }
-
-        let hadFailure = false
-        for (const nr of result.nodeRuns) {
-          const output = result.nodeOutputs[nr.nodeId]
-          const node = get().nodes.find(n => n.id === nr.nodeId)
-          updateNodeData(nr.nodeId, {
-            status: nr.status,
-            result: typeof output === 'string' ? output : undefined,
-            lastOutput: output ?? null,
-            error: nr.error,
-          })
-          if (nr.status === 'success') {
-            set(s => ({ completedNodeIds: new Set([...s.completedNodeIds, nr.nodeId]) }))
-            if (node) maybeAddAsset(nr.nodeId, node.type, output, node.data as Record<string, unknown>, addAsset)
-          } else {
-            hadFailure = true
-          }
-        }
-
-        if (hadFailure) {
-          for (let si = li + 1; si < execSelLayers.length; si++)
-            for (const n of execSelLayers[si])
-              updateNodeData(n.id, { status: 'idle', error: 'Skipped — a previous node failed.' })
-          return
-        }
-      }
-
-      await fetchRuns()
-    } catch (err) {
-      for (const id of executableIds) updateNodeData(id, { status: 'failed', error: String(err) })
-    } finally {
-      set(s => {
-        const next = new Set(s.runningNodeIds)
-        executableIds.forEach(id => next.delete(id))
-        return { runningNodeIds: next }
-      })
-    }
+    if (toRun.length > 0) await get().startRun(toRun)
   },
 
   // ── Run history ────────────────────────────────────────────────────────────
@@ -817,7 +770,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   assets: [],
-  addAsset: (asset) => set(s => ({ assets: [asset, ...s.assets] })),
+  addAsset: (asset) => set(s =>
+    s.assets.some(a => a.nodeId === asset.nodeId && a.url === asset.url)
+      ? s
+      : { assets: [asset, ...s.assets] },
+  ),
 
   projects: [],
   fetchProjects: async () => {
@@ -861,6 +818,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         runningNodeIds: new Set(),
         completedNodeIds: new Set(),
       })
+      get().scheduleAutoSave()
     } catch { /**/ }
   },
 
@@ -874,5 +832,25 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       runningNodeIds: new Set(),
       completedNodeIds: new Set(),
     })
+    get().scheduleAutoSave()
   },
 }))
+
+// Flush a pending auto-save if the tab closes/refreshes before the debounce
+// fires. keepalive lets the PUT outlive the page. Skipped for unsaved 'new'
+// workflows — the redirect to the created id would be lost anyway.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (!autoSaveTimer) return
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    const { workflowId, workflowName, nodes, edges } = useWorkflowStore.getState()
+    if (workflowId === 'new') return
+    fetch(`/api/workflow/${workflowId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: workflowName, nodes, edges }),
+      keepalive: true,
+    }).catch(() => { /* page is going away — nothing to report */ })
+  })
+}

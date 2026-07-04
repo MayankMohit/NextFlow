@@ -1,49 +1,49 @@
-import { task } from '@trigger.dev/sdk/v3'
-import { nodeExecutorTask, type NodeExecutorPayload } from './nodeExecutorTask'
+import { task, metadata } from '@trigger.dev/sdk/v3'
+import { prisma } from '@/lib/prisma'
 import { topologicalSort, resolveInputs } from '@/lib/dagExecutor'
+import { executors } from './executors'
 import type { Node, Edge } from '@xyflow/react'
 
-interface OrchestratorPayload {
+export interface OrchestratorPayload {
+  workflowRunId: string
+  workflowId: string
+  userId: string
   nodes: Node[]
   edges: Edge[]
-  scope: 'full' | 'partial' | 'single'
-  selectedNodeIds?: string[]
+  /** Executable node ids to run this time; omit/empty = all executable nodes */
+  targetNodeIds?: string[]
 }
 
-export interface NodeRunResult {
-  nodeId: string
-  nodeType: string
-  status: 'success' | 'failed'
-  result?: unknown
+export type NodeRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+export interface NodeRunMeta {
+  status: NodeRunStatus
+  output?: unknown
   error?: string
-  duration: number
+  duration?: number
 }
 
 const PASSTHROUGH_TYPES = ['textNode', 'uploadImageNode', 'uploadVideoNode']
+const SKIPPED_ERROR = 'Skipped — a previous node failed.'
 
 export const orchestratorTask = task({
   id: 'orchestrator-task',
-  maxDuration: 300,
+  maxDuration: 600,
+  // Retrying would re-run the whole graph (and re-bill LLM calls) — failures
+  // are already reported per-node.
+  retry: { maxAttempts: 1 },
   run: async (payload: OrchestratorPayload) => {
-    const { nodes, edges, scope, selectedNodeIds } = payload
+    const { workflowRunId, nodes, edges, targetNodeIds } = payload
+    const startedAt = Date.now()
 
-    // selectedNodeIds always wins when present — it specifies exactly which nodes
-    // this call should execute (e.g. a single layer in a multi-layer run).
-    // Only fall back to the full graph when no explicit selection is given.
-    const targetNodes = selectedNodeIds?.length
-      ? nodes.filter((n) => selectedNodeIds.includes(n.id))
-      : nodes
+    const targetNodes = (
+      targetNodeIds?.length ? nodes.filter(n => targetNodeIds.includes(n.id)) : nodes
+    ).filter(n => !PASSTHROUGH_TYPES.includes(n.type ?? ''))
 
-    const layers = topologicalSort(targetNodes, edges)
+    // Seed outputs from the full graph so upstream data is available when
+    // running a subset. Passthrough nodes read from node.data directly;
+    // executed nodes carry their previous result in lastOutput.
     const nodeOutputs = new Map<string, unknown>()
-    const nodeRunResults: NodeRunResult[] = []
-
-    // Initialize outputs from the full graph so upstream data is available
-    // when running a subset of nodes. Passthrough nodes read from node.data
-    // directly; non-passthrough nodes use lastOutput (set by the client after
-    // each layer completes) so crop/extract-frame results carry forward.
-    // Only set the key when the value is non-null so nodeOutputs.has() never
-    // returns a false-positive true with an undefined/null payload.
     for (const node of nodes) {
       if (node.type === 'textNode') {
         if (node.data.text != null) nodeOutputs.set(node.id, node.data.text)
@@ -56,92 +56,91 @@ export const orchestratorTask = task({
       }
     }
 
-    for (const layer of layers) {
-      const executableNodes = layer.filter(n => !PASSTHROUGH_TYPES.includes(n.type!))
-      if (executableNodes.length === 0) continue
+    // Live per-node status — streamed to the client via Realtime metadata
+    const nodesMeta: Record<string, NodeRunMeta> = {}
+    for (const n of targetNodes) nodesMeta[n.id] = { status: 'pending' }
+    const publish = () => metadata.set('nodes', { ...nodesMeta } as never)
+    publish()
 
-      const startTime = Date.now()
+    const failedOrSkipped = new Set<string>()
 
-      const batchPayloads = executableNodes.map(node => {
-        const inputs = resolveInputs(node, edges, nodeOutputs)
-
-        if (node.type === 'llmNode') {
-          const imageUrls = edges
-            .filter(e => e.target === node.id && e.targetHandle === 'images')
-            .map(e => nodeOutputs.get(e.source))
-            .filter((v): v is string => typeof v === 'string')
-
-          return {
-            payload: {
-              nodeId: node.id,
-              nodeType: 'llmNode',
-              model: typeof node.data.model === 'string' ? node.data.model : 'gemini-2.0-flash',
-              systemPrompt: typeof inputs['system_prompt'] === 'string' ? inputs['system_prompt'] : undefined,
-              userMessage: typeof inputs['user_message'] === 'string' ? inputs['user_message'] : '',
-              imageUrls,
-            } satisfies NodeExecutorPayload,
+    try {
+      for (const layer of topologicalSort(targetNodes, edges)) {
+        // A node whose direct upstream failed/was skipped can never succeed —
+        // layers arrive in topo order so this propagates transitively.
+        const runnable: Node[] = []
+        for (const node of layer) {
+          if (edges.some(e => e.target === node.id && failedOrSkipped.has(e.source))) {
+            failedOrSkipped.add(node.id)
+            nodesMeta[node.id] = { status: 'skipped', error: SKIPPED_ERROR }
+          } else {
+            runnable.push(node)
+            nodesMeta[node.id] = { status: 'running' }
           }
         }
+        publish()
+        if (runnable.length === 0) continue
 
-        if (node.type === 'cropImageNode') {
-          return {
-            payload: {
-              nodeId: node.id,
-              nodeType: 'cropImageNode',
-              imageUrl: typeof inputs['image_url'] === 'string' ? inputs['image_url'] : typeof node.data.imageUrl === 'string' ? node.data.imageUrl : '',
-              xPercent: typeof inputs['x_percent'] === 'number' ? inputs['x_percent'] : typeof node.data.xPercent === 'number' ? node.data.xPercent : 0,
-              yPercent: typeof inputs['y_percent'] === 'number' ? inputs['y_percent'] : typeof node.data.yPercent === 'number' ? node.data.yPercent : 0,
-              widthPercent: typeof inputs['width_percent'] === 'number' ? inputs['width_percent'] : typeof node.data.widthPercent === 'number' ? node.data.widthPercent : 100,
-              heightPercent: typeof inputs['height_percent'] === 'number' ? inputs['height_percent'] : typeof node.data.heightPercent === 'number' ? node.data.heightPercent : 100,
-              transloaditKey: process.env.NEXT_PUBLIC_TRANSLOADIT_KEY ?? '',
-            } satisfies NodeExecutorPayload,
+        const layerStart = Date.now()
+        const results = await Promise.allSettled(
+          runnable.map(node => {
+            const executor = executors[node.type ?? '']
+            if (!executor) throw new Error(`No executor for node type: ${node.type}`)
+            const inputs = resolveInputs(node, edges, nodeOutputs)
+            const imageUrls = edges
+              .filter(e => e.target === node.id && e.targetHandle === 'images')
+              .map(e => nodeOutputs.get(e.source))
+              .filter((v): v is string => typeof v === 'string')
+            return executor({ node, inputs, imageUrls })
+          }),
+        )
+
+        const duration = (Date.now() - layerStart) / 1000
+        results.forEach((res, i) => {
+          const node = runnable[i]
+          if (res.status === 'fulfilled') {
+            nodeOutputs.set(node.id, res.value)
+            nodesMeta[node.id] = { status: 'success', output: res.value, duration }
+          } else {
+            failedOrSkipped.add(node.id)
+            const reason = res.reason instanceof Error ? res.reason.message : String(res.reason)
+            nodesMeta[node.id] = { status: 'failed', error: reason, duration }
           }
-        }
+        })
+        publish()
+      }
 
-        // extractFrameNode
-        return {
-          payload: {
-            nodeId: node.id,
-            nodeType: 'extractFrameNode',
-            videoUrl: typeof inputs['video_url'] === 'string' ? inputs['video_url'] : typeof node.data.videoUrl === 'string' ? node.data.videoUrl : '',
-            timestamp: typeof inputs['timestamp'] === 'string' ? inputs['timestamp'] : typeof node.data.timestamp === 'string' ? node.data.timestamp : '0',
-            transloaditKey: process.env.NEXT_PUBLIC_TRANSLOADIT_KEY ?? '',
-          } satisfies NodeExecutorPayload,
-        }
+      const statuses = Object.values(nodesMeta).map(m => m.status)
+      const overallStatus =
+        statuses.every(s => s === 'success') ? 'success' :
+        statuses.some(s => s === 'success') ? 'partial' : 'failed'
+
+      await prisma.nodeRun.createMany({
+        data: targetNodes.map(n => {
+          const meta = nodesMeta[n.id]
+          return {
+            workflowRunId,
+            nodeId: n.id,
+            nodeType: n.type ?? 'unknown',
+            status: meta.status,
+            outputs: meta.output != null ? { result: meta.output as never } : undefined,
+            error: meta.error ?? null,
+            duration: meta.duration ?? 0,
+          }
+        }),
+      })
+      await prisma.workflowRun.update({
+        where: { id: workflowRunId },
+        data: { status: overallStatus, duration: (Date.now() - startedAt) / 1000 },
       })
 
-      const { runs } = await nodeExecutorTask.batchTriggerAndWait(batchPayloads)
-
-      for (let i = 0; i < runs.length; i++) {
-        const run = runs[i]
-        const node = executableNodes[i]
-        const duration = (Date.now() - startTime) / 1000
-
-        if (run.ok) {
-          nodeOutputs.set(node.id, run.output?.result)
-          nodeRunResults.push({
-            nodeId: node.id,
-            nodeType: node.type ?? 'unknown',
-            status: 'success',
-            result: run.output?.result,
-            duration,
-          })
-        } else {
-          nodeRunResults.push({
-            nodeId: node.id,
-            nodeType: node.type ?? 'unknown',
-            status: 'failed',
-            error: typeof run.error === 'string' ? run.error : 'Task failed',
-            duration,
-          })
-        }
-      }
-    }
-
-    return {
-      nodeOutputs: Object.fromEntries(nodeOutputs),
-      nodeRunResults,
-      overallStatus: nodeRunResults.some(r => r.status === 'failed') ? 'partial' : 'success',
+      return { nodeOutputs: Object.fromEntries(nodeOutputs), overallStatus }
+    } catch (err) {
+      // Unexpected crash (not a per-node failure) — don't leave the run 'running'
+      await prisma.workflowRun
+        .update({ where: { id: workflowRunId }, data: { status: 'failed' } })
+        .catch(() => { /* best effort */ })
+      throw err
     }
   },
 })

@@ -6,6 +6,7 @@ import { useWorkflowStore } from '@/store/workflowStore'
 import LeftSidebar from '@/components/sidebar/LeftSidebar'
 import RightSidebar from '@/components/sidebar/RightSidebar'
 import WorkflowCanvas from '@/components/canvas/WorkflowCanvas'
+import RunRealtimeBridge from '@/components/canvas/RunRealtimeBridge'
 import TopBar from '@/components/toolbar/TopBar'
 import BottomBar from '@/components/toolbar/BottomBar'
 
@@ -29,6 +30,7 @@ function WorkflowPageInner({ id }: { id: string }) {
       <LeftSidebar />
       <div className="relative flex-1 overflow-hidden">
         <WorkflowCanvas />
+        <RunRealtimeBridge />
         <TopBar />
         <BottomBar />
       </div>

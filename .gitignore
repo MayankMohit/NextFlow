@@ -42,3 +42,7 @@ next-env.d.ts
 
 .trigger
 /src/generated/prisma
+
+# Terminal Paste Image folder
+.cp-images/
+plan.md

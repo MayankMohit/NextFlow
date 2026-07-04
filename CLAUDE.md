@@ -1,246 +1,62 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 @AGENTS.md
 
-<!-- UI LAYOUT START -->
-# UI Layout Spec (NextFlow — /workflow/:id)
+# Project
+Visual workflow automation platform (Krea.ai workflow builder clone). Single main route `/workflow/:id` — three-column layout: LeftSidebar | ReactFlow Canvas | RightSidebar. Clerk protects `/workflow(.*)` via `src/proxy.ts` (Next.js 16 uses `proxy.ts`, not `middleware.ts`).
 
-## Page Structure
-Single route `/workflow/:id`. Three-column layout: LeftSidebar | Main Canvas | RightSidebar.
+**Stack:** Next.js 16 (App Router), React 19 (with React Compiler), @xyflow/react, Tailwind v4, Zustand 5, Clerk auth, PostgreSQL (Neon adapter) + Prisma 7, Trigger.dev v4, Gemini, Transloadit.
 
-## Left Sidebar
-- Collapsible (drag edge to resize; collapses to icon-only below threshold)
-- Search bar to filter nodes
-- "Quick Access" section with 6 node buttons: Text, Upload Image, Upload Video, LLM, Crop Image, Extract Frame
-- Each button: click to add to canvas, or drag onto canvas
-- Bottom: user avatar + username, sign-out
+**Node types:** TextNode, UploadImageNode, UploadVideoNode (passthrough — their data is used directly, never executed as tasks), LLMNode, CropImageNode, ExtractFrameNode (executed via Trigger.dev).
 
-## Main Canvas (center)
-**Top-left corner:** Logo dropdown (import JSON, export JSON, projects submenu) + project name (inline edit, default "Untitled") + Run button
+# Commands
+- `npm run dev` — dev server
+- `npm run build` — production build
+- `npm run lint` — ESLint
+- `npx prisma generate` — regenerate Prisma client (also runs on postinstall)
+- `npx prisma migrate dev` — apply schema changes
+- `npx trigger.dev@latest dev` — run Trigger.dev tasks locally (needed for node execution to work in dev)
 
-**Top-right corner:** Light/dark toggle + Assets panel button + History panel button
+No test framework is configured.
 
-**Bottom-left corner:** Undo, Redo, Keyboard shortcuts modal button
+# Architecture
 
-**Bottom-center:** Canvas tools — Add node, Draw selection, Cut connections, Presets
+## Execution flow (spans several files — read together)
+1. `src/store/workflowStore.ts` — `runWorkflow()` topologically sorts the graph client-side (`src/lib/dagExecutor.ts`), then calls `POST /api/workflow/[id]/run` **once per layer** via `runLayer()`. The first call creates a `WorkflowRun` (and instant `NodeRun` records for passthrough nodes); subsequent calls pass `existingRunId` to append `NodeRun`s to the same run.
+2. `src/app/api/workflow/[id]/run/route.ts` — auth check, Zod validation, persists run records, triggers `orchestratorTask` and waits for the result.
+3. `src/trigger/orchestratorTask.ts` — re-sorts the target nodes into parallel layers, resolves each node's inputs from incoming edges (`resolveInputs` maps `edge.targetHandle` → upstream output), and `batchTriggerAndWait`s `nodeExecutorTask` per layer.
+4. `src/trigger/nodeExecutorTask.ts` — dispatches to `llmTask` (Gemini), `cropImageTask` / `extractFrameTask` (Transloadit FFmpeg assemblies).
+5. Outputs flow back to the client, which writes them into `node.data.lastOutput` so downstream layers and partial re-runs can read prior results.
 
-**Bottom-right:** MiniMap (built into ReactFlow)
+Passthrough node outputs come from `node.data` (`text`, `imageUrl`, `videoUrl`); executable node outputs come from `node.data.lastOutput`. Cycles are blocked at connect time in the store.
 
-**Canvas:** Dotted grid background (light/dark aware), React Flow nodes & edges, pan/zoom/fit-view
+## Data layer
+- **Prisma client is generated into `src/generated/prisma`** — import `PrismaClient` from `@/generated/prisma`, never from `@prisma/client`. Use the `prisma` singleton from `src/lib/prisma.ts` (Neon adapter). Never edit `src/generated/`.
+- Schema: `prisma/schema.prisma` — `Workflow` (nodes/edges stored as Json) → `WorkflowRun` (status: success|failed|partial|running, scope: full|partial|single) → `NodeRun`.
 
-## Right Sidebar (toggle-open)
-Opens when user clicks Assets or History button in top-right. Clicking same button again closes it.
+## State
+`src/store/workflowStore.ts` is the single Zustand store: nodes/edges, undo/redo history, save/load, run orchestration, run history, theme, panel state. Node components read/write via `updateNodeData`.
 
-**Assets panel:** Grid of generated images/videos. Click opens modal with: full preview, prompt used, created_at, dimensions, file size, model used, copy URL button, download button.
+## Key directories
+- `src/components/nodes/` — one component per node type, registered in `WorkflowCanvas.tsx`
+- `src/trigger/` — Trigger.dev tasks (dir configured in `trigger.config.ts`)
+- `src/app/api/` — REST routes: `workflow/[id]` (CRUD), `workflow/[id]/run`, `runs/[workflowId]` (history), `projects`
 
-**History panel:** List of workflow runs (each run = one card). Each card shows: run number, timestamp, status badge (success/failed/partial), scope (full/partial/single), duration, expandable node-level details. Card background has a minimap thumbnail of the node layout (future: Krea.ai card style). Clicking a run expands node-level execution details.
+## Env vars
+`DATABASE_URL`, `GEMINI_API_KEY`, `NEXT_PUBLIC_TRANSLOADIT_KEY`, Clerk keys, Trigger.dev keys.
 
-## Styling notes
-- Dark-first (#0a0a0a background, #1c1c1c panels, #2a2a2a borders)
-- Violet accent (#7c3aed edges, handles, active states)
-- Minimal working version now; pixel-perfect Krea.ai styling later
-- Animated purple edges (stroke: #7c3aed, animated: true)
-- Nodes pulse violet glow when running (animate-pulse shadow-violet-500/30)
-<!-- UI LAYOUT END -->
+# Styling
+Dark-first: `#0a0a0a` bg, `#1c1c1c` panels, `#2a2a2a` borders. Violet accent `#7c3aed`. Nodes pulse violet glow when running (`animate-pulse shadow-violet-500/30`).
 
+# Trigger.dev (v4)
+- **MUST use `@trigger.dev/sdk`** — never `client.defineJob`
+- `triggerAndWait()` / `batchTriggerAndWait()` return a `Result` object (`ok`, `output`, `error`) — not the direct task output
+- **Never** wrap `triggerAndWait`, `batchTriggerAndWait`, or `wait` calls in `Promise.all` / `Promise.allSettled`
 
-<!-- TRIGGER.DEV basic START -->
-# Trigger.dev Basic Tasks (v4)
+<!-- TRIGGER.DEV SKILLS START -->
+## Trigger.dev agent skills
 
-**MUST use `@trigger.dev/sdk`, NEVER `client.defineJob`**
-
-## Basic Task
-
-```ts
-import { task } from "@trigger.dev/sdk";
-
-export const processData = task({
-  id: "process-data",
-  retry: {
-    maxAttempts: 10,
-    factor: 1.8,
-    minTimeoutInMs: 500,
-    maxTimeoutInMs: 30_000,
-    randomize: false,
-  },
-  run: async (payload: { userId: string; data: any[] }) => {
-    // Task logic - runs for long time, no timeouts
-    console.log(`Processing ${payload.data.length} items for user ${payload.userId}`);
-    return { processed: payload.data.length };
-  },
-});
-```
-
-## Schema Task (with validation)
-
-```ts
-import { schemaTask } from "@trigger.dev/sdk";
-import { z } from "zod";
-
-export const validatedTask = schemaTask({
-  id: "validated-task",
-  schema: z.object({
-    name: z.string(),
-    age: z.number(),
-    email: z.string().email(),
-  }),
-  run: async (payload) => {
-    // Payload is automatically validated and typed
-    return { message: `Hello ${payload.name}, age ${payload.age}` };
-  },
-});
-```
-
-## Triggering Tasks
-
-### From Backend Code
-
-```ts
-import { tasks } from "@trigger.dev/sdk";
-import type { processData } from "./trigger/tasks";
-
-// Single trigger
-const handle = await tasks.trigger<typeof processData>("process-data", {
-  userId: "123",
-  data: [{ id: 1 }, { id: 2 }],
-});
-
-// Batch trigger (up to 1,000 items, 3MB per payload)
-const batchHandle = await tasks.batchTrigger<typeof processData>("process-data", [
-  { payload: { userId: "123", data: [{ id: 1 }] } },
-  { payload: { userId: "456", data: [{ id: 2 }] } },
-]);
-```
-
-### Debounced Triggering
-
-Consolidate multiple triggers into a single execution:
-
-```ts
-// Multiple rapid triggers with same key = single execution
-await myTask.trigger(
-  { userId: "123" },
-  {
-    debounce: {
-      key: "user-123-update",  // Unique key for debounce group
-      delay: "5s",              // Wait before executing
-    },
-  }
-);
-
-// Trailing mode: use payload from LAST trigger
-await myTask.trigger(
-  { data: "latest-value" },
-  {
-    debounce: {
-      key: "trailing-example",
-      delay: "10s",
-      mode: "trailing",  // Default is "leading" (first payload)
-    },
-  }
-);
-```
-
-**Debounce modes:**
-- `leading` (default): Uses payload from first trigger, subsequent triggers only reschedule
-- `trailing`: Uses payload from most recent trigger
-
-### From Inside Tasks (with Result handling)
-
-```ts
-export const parentTask = task({
-  id: "parent-task",
-  run: async (payload) => {
-    // Trigger and continue
-    const handle = await childTask.trigger({ data: "value" });
-
-    // Trigger and wait - returns Result object, NOT task output
-    const result = await childTask.triggerAndWait({ data: "value" });
-    if (result.ok) {
-      console.log("Task output:", result.output); // Actual task return value
-    } else {
-      console.error("Task failed:", result.error);
-    }
-
-    // Quick unwrap (throws on error)
-    const output = await childTask.triggerAndWait({ data: "value" }).unwrap();
-
-    // Batch trigger and wait
-    const results = await childTask.batchTriggerAndWait([
-      { payload: { data: "item1" } },
-      { payload: { data: "item2" } },
-    ]);
-
-    for (const run of results) {
-      if (run.ok) {
-        console.log("Success:", run.output);
-      } else {
-        console.log("Failed:", run.error);
-      }
-    }
-  },
-});
-
-export const childTask = task({
-  id: "child-task",
-  run: async (payload: { data: string }) => {
-    return { processed: payload.data };
-  },
-});
-```
-
-> Never wrap triggerAndWait or batchTriggerAndWait calls in a Promise.all or Promise.allSettled as this is not supported in Trigger.dev tasks.
-
-## Waits
-
-```ts
-import { task, wait } from "@trigger.dev/sdk";
-
-export const taskWithWaits = task({
-  id: "task-with-waits",
-  run: async (payload) => {
-    console.log("Starting task");
-
-    // Wait for specific duration
-    await wait.for({ seconds: 30 });
-    await wait.for({ minutes: 5 });
-    await wait.for({ hours: 1 });
-    await wait.for({ days: 1 });
-
-    // Wait until specific date
-    await wait.until({ date: new Date("2024-12-25") });
-
-    // Wait for token (from external system)
-    await wait.forToken({
-      token: "user-approval-token",
-      timeoutInSeconds: 3600, // 1 hour timeout
-    });
-
-    console.log("All waits completed");
-    return { status: "completed" };
-  },
-});
-```
-
-> Never wrap wait calls in a Promise.all or Promise.allSettled as this is not supported in Trigger.dev tasks.
-
-## Key Points
-
-- **Result vs Output**: `triggerAndWait()` returns a `Result` object with `ok`, `output`, `error` properties - NOT the direct task output
-- **Type safety**: Use `import type` for task references when triggering from backend
-- **Waits > 5 seconds**: Automatically checkpointed, don't count toward compute usage
-- **Debounce + idempotency**: Idempotency keys take precedence over debounce settings
-
-## NEVER Use (v2 deprecated)
-
-```ts
-// BREAKS APPLICATION
-client.defineJob({
-  id: "job-id",
-  run: async (payload, io) => {
-    /* ... */
-  },
-});
-```
-
-Use SDK (`@trigger.dev/sdk`), check `result.ok` before accessing `result.output`
-
-<!-- TRIGGER.DEV basic END -->
+This project has Trigger.dev agent skills installed in `.claude/skills/`. Before writing or changing Trigger.dev code (background tasks, scheduled tasks, realtime, or chat.agent AI agents), load the most relevant skill: `trigger-getting-started`.
+<!-- TRIGGER.DEV SKILLS END -->
