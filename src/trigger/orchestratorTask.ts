@@ -134,7 +134,11 @@ export const orchestratorTask = task({
         data: { status: overallStatus, duration: (Date.now() - startedAt) / 1000 },
       })
 
-      return { nodeOutputs: Object.fromEntries(nodeOutputs), overallStatus }
+      // The completion event can outrun the last streamed metadata update, so
+      // flush it AND return the final per-node state — the client treats the
+      // output as authoritative when the run finishes.
+      await metadata.flush()
+      return { nodeOutputs: Object.fromEntries(nodeOutputs), nodesMeta, overallStatus }
     } catch (err) {
       // Unexpected crash (not a per-node failure) — don't leave the run 'running'
       await prisma.workflowRun

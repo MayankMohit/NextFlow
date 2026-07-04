@@ -32,7 +32,10 @@ function Bridge({ triggerRunId, accessToken }: { triggerRunId: string; accessTok
     accessToken,
     onComplete: (finishedRun, err) => {
       const store = useWorkflowStore.getState()
-      const nodesMeta = (finishedRun.metadata as RunMetadata)?.nodes
+      // The task's return value carries the authoritative final node states —
+      // streamed metadata can lag behind the completion event.
+      const output = finishedRun.output as { nodesMeta?: Record<string, NodeRunMeta> } | undefined
+      const nodesMeta = output?.nodesMeta ?? (finishedRun.metadata as RunMetadata)?.nodes
       if (nodesMeta) store.applyRunProgress(nodesMeta)
       const ok = !err && finishedRun.status === 'COMPLETED'
       store.finishRun(ok ? undefined : (err?.message ?? `Run ${finishedRun.status.toLowerCase()}`))
