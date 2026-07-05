@@ -3,10 +3,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useWorkflowStore } from '@/store/workflowStore'
-import { useReactFlow } from '@xyflow/react'
+import { useReactFlow, useStore } from '@xyflow/react'
 import {
   Undo2, Redo2, Keyboard, Plus, Hand, Scissors,
-  LayoutGrid, Maximize2, X, MousePointer2, ChevronRight,
+  LayoutGrid, Maximize2, X, MousePointer2, ChevronRight, Sun, Moon, Trash2,
 } from 'lucide-react'
 
 const shortcuts = [
@@ -67,8 +67,8 @@ function PresetsModal({ onClose, onLoad }: { onClose: () => void; onLoad: (id: s
 
   return createPortal(
     <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className={`border rounded-xl p-5 shadow-2xl overflow-y-auto ${panel}`}
-        style={{ width: '40vw', minHeight: '20vh', maxHeight: '80vh' }}
+      <div className={`border rounded-xl p-5 shadow-2xl overflow-y-auto w-[92vw] md:w-[40vw] ${panel}`}
+        style={{ minHeight: '20vh', maxHeight: '80vh' }}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <span className={`text-sm font-semibold ${textMain}`}>Workflow Presets</span>
@@ -158,7 +158,7 @@ function CanvasTools() {
 
   return (
     <>
-      <div className={`flex items-center gap-2 border rounded-xl px-0.75 py-0.75 relative ${toolbar}`}>
+      <div className={`flex items-center gap-2 border shadow-lg rounded-xl px-0.75 py-0.75 relative ${toolbar}`}>
         <div ref={nodePickerRef} className="relative">
           <button onClick={() => setShowNodePicker(v => !v)} title="Add node"
             className={`p-3 rounded transition-colors ${btn}`}>
@@ -198,8 +198,9 @@ function CanvasTools() {
 
 export default function BottomBar() {
   const [showShortcuts, setShowShortcuts] = useState(false)
-  const { undo, redo, past, future, theme } = useWorkflowStore()
-  const { fitView } = useReactFlow()
+  const { undo, redo, past, future, theme, toggleTheme } = useWorkflowStore()
+  const { fitView, getNodes, deleteElements } = useReactFlow()
+  const hasSelection = useStore(s => s.nodes.some(n => n.selected))
 
   const isDark = theme === 'dark'
   const btn = isDark ? 'text-white bg-[#2a2a2a] hover:bg-[#333]' : 'text-black bg-white hover:bg-[#f0f0f0]'
@@ -207,35 +208,56 @@ export default function BottomBar() {
 
   return (
     <>
-      {/* Bottom Left */}
-      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1.5 pointer-events-auto">
+      {/* Undo/redo — bottom-left on desktop; on mobile pinned top-right,
+          vertically inline with the top bar */}
+      <div className="fixed top-4 right-3 md:absolute md:top-auto md:bottom-4 md:left-4 md:right-auto z-50 md:z-20 flex items-center gap-1.5 pointer-events-auto">
         <div className={`flex items-center gap-2 rounded-lg px-1.5 py-1`}>
           <button onClick={undo} disabled={past.length === 0} title="Undo (Ctrl+Z)"
-            className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
+            className={`p-2 rounded-lg shadow-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
             <Undo2 size={20} />
           </button>
           <button onClick={redo} disabled={future.length === 0} title="Redo (Ctrl+Shift+Z)"
-            className={`p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
+            className={`p-2 rounded-lg shadow-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btn}`}>
             <Redo2 size={20} />
           </button>
         </div>
         <button onClick={() => setShowShortcuts(true)}
-          className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${scBtn}`}>
+          className={`hidden md:flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${scBtn}`}>
           <Keyboard size={18} />
           <span className="hidden sm:block">Shortcuts</span>
         </button>
       </div>
 
-      {/* Bottom Center — fixed so panels opening don't shift it */}
-      <div className="fixed bottom-4 left-1/2  z-20 pointer-events-auto">
+      {/* Bottom Center — fixed so panels opening don't shift it.
+          Mobile centers it; desktop keeps the original position. */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 md:translate-x-0 z-20 pointer-events-auto">
         <CanvasTools />
       </div>
 
-      {/* Bottom Right */}
+      {/* Bottom Right — fit view (unchanged on desktop) */}
       <div className="absolute bottom-2 right-4 z-20 pointer-events-auto">
         <button onClick={() => fitView({ padding: 0.2, duration: 400 })} title="Fit view"
-          className={`p-1.5  rounded-lg transition-colors ${scBtn}`}>
+          className={`p-1.5  rounded-lg shadow-lg transition-colors ${scBtn}`}>
           <Maximize2 size={14} />
+        </button>
+      </div>
+
+      {/* Mobile: delete (top) + theme toggle, right-edge tabs above fit-view */}
+      <div className="md:hidden fixed right-0 bottom-16 z-40 flex flex-col gap-1.5">
+        <button
+          onClick={() => { const sel = getNodes().filter(n => n.selected); if (sel.length) void deleteElements({ nodes: sel }) }}
+          disabled={!hasSelection}
+          title={hasSelection ? 'Delete selected node(s)' : 'Select a node to delete'}
+          className={`flex items-center justify-center w-9 h-12 rounded-l-xl border border-r-0 shadow-lg transition-colors disabled:cursor-not-allowed ${
+            hasSelection
+              ? isDark ? 'bg-[#1c1c1c] border-red-500 text-red-500' : 'bg-white border-red-500 text-red-500'
+              : isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] text-[#555]' : 'bg-white border-[#e0e0e0] text-[#bbb]'
+          }`}>
+          <Trash2 size={16} />
+        </button>
+        <button onClick={toggleTheme} title={isDark ? 'Switch to light' : 'Switch to dark'}
+          className={`flex items-center justify-center w-9 h-12 rounded-l-xl border border-r-0 shadow-lg transition-colors ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] text-white' : 'bg-white border-[#e0e0e0] text-[#111]'}`}>
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
       </div>
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useWorkflowStore, type WorkflowRun, type Asset } from "@/store/workflowStore";
-import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, ImageOff, Check, Copy, Download, Loader2, X, Trash2 } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, ImageOff, Check, Copy, Download, Loader2, X, Trash2, History } from "lucide-react";
 
 function useTheme() {
   const { theme } = useWorkflowStore()
@@ -486,13 +486,46 @@ function AssetsPanel() {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function RightSidebar() {
-  const { rightPanel, theme } = useWorkflowStore()
-  if (!rightPanel) return null
+  const { rightPanel, setRightPanel, theme } = useWorkflowStore()
   const isDark = theme === 'dark'
+  const panelCls = isDark ? 'bg-[#141414] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'
+
+  const idleTab = isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] text-white' : 'bg-white border-[#e0e0e0] text-[#111]'
 
   return (
-    <div className={`w-72 h-full flex flex-col shrink-0 overflow-hidden border-l ${isDark ? 'bg-[#141414] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'}`}>
-      {rightPanel === "history" ? <HistoryPanel /> : <AssetsPanel />}
-    </div>
+    <>
+      {/* Mobile: assets / history tabs, stacked under the undo-redo row */}
+      <div className="md:hidden fixed right-0 top-16 z-40 flex flex-col gap-1.5">
+        {(['assets', 'history'] as const).map(p => (
+          <button
+            key={p}
+            onClick={() => setRightPanel(p)}
+            title={p === 'assets' ? 'Assets' : 'History'}
+            className={`flex items-center justify-center w-9 h-12 rounded-l-xl border border-r-0 shadow-lg transition-colors ${
+              rightPanel === p ? 'bg-[#7c3aed] border-[#6d28d9] text-white' : idleTab
+            }`}
+          >
+            {p === 'assets' ? <ImageIcon size={15} /> : <History size={15} />}
+          </button>
+        ))}
+      </div>
+
+      {/* Desktop: inline panel — exactly as before */}
+      {rightPanel && (
+        <div className={`hidden md:flex w-72 h-full flex-col shrink-0 overflow-hidden border-l ${panelCls}`}>
+          {rightPanel === "history" ? <HistoryPanel /> : <AssetsPanel />}
+        </div>
+      )}
+
+      {/* Mobile: same panel as a slide-over drawer */}
+      {rightPanel && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setRightPanel(rightPanel)} />
+          <div className={`absolute inset-y-0 right-0 w-[85vw] max-w-80 flex flex-col overflow-hidden border-l shadow-2xl ${panelCls}`}>
+            {rightPanel === "history" ? <HistoryPanel /> : <AssetsPanel />}
+          </div>
+        </div>
+      )}
+    </>
   )
 }

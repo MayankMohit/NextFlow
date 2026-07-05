@@ -28,7 +28,7 @@ function WorkflowPageInner({ id, template }: { id: string; template?: string }) 
   const bg = isDark ? 'bg-[#0a0a0a]' : 'bg-[#f5f5f5]'
 
   return (
-    <div suppressHydrationWarning className={`flex h-screen w-screen overflow-hidden ${bg}`}>
+    <div suppressHydrationWarning className={`flex h-dvh w-screen overflow-hidden ${bg}`}>
       <LeftSidebar />
       <div className="relative flex-1 overflow-hidden">
         <WorkflowCanvas />

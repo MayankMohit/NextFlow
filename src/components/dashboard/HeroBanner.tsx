@@ -3,7 +3,7 @@ import { Plus, Sparkles } from "lucide-react";
 
 export default function HeroBanner() {
   return (
-    <div className="relative overflow-hidden rounded-3xl px-8 py-12 md:px-12 md:py-16 bg-gradient-to-br from-[#4c1d95] via-[#6d28d9] to-[#a21caf]">
+    <div className="relative overflow-hidden rounded-3xl px-5 py-10 md:px-12 md:py-16 bg-gradient-to-br from-[#4c1d95] via-[#6d28d9] to-[#a21caf]">
       {/* soft glow accents */}
       <div className="pointer-events-none absolute -top-24 -right-24 w-80 h-80 rounded-full bg-fuchsia-400/20 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-32 -left-16 w-96 h-96 rounded-full bg-violet-400/20 blur-3xl" />

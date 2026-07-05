@@ -54,7 +54,7 @@ export default function MarketingHero() {
           Chain LLMs, image and video tools on an infinite canvas. Connect nodes,
           hit run, and watch results flow through your graph in real time.
         </p>
-        <div className="mt-9 flex items-center justify-center gap-3">
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/sign-up"
             className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#7c3aed] hover:bg-[#6d28d9] text-white text-sm font-semibold transition-colors"

@@ -222,9 +222,10 @@ export default function LeftSidebar() {
   const inputBg = isDark ? "bg-[#1c1c1c]" : "bg-white";
 
   return (
+    // Hidden on mobile — nodes are added from the bottom toolbar's + instead
     <div
       style={{ width: `${width}px` }}
-      className={`relative h-full ${bg} border-r ${border} flex flex-col shrink-0 transition-none z-20`}
+      className={`relative h-full ${bg} border-r ${border} hidden md:flex flex-col shrink-0 transition-none z-20`}
     >
       {/* Logo */}
       <div

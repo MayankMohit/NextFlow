@@ -69,7 +69,7 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-[#0a0a0a]">
       <DashboardTopNav />
-      <main className="max-w-6xl mx-auto px-6 py-8 flex flex-col gap-10 pb-20">
+      <main className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-8 flex flex-col gap-8 md:gap-10 pb-20">
         <HeroBanner />
         <FeatureTiles />
         <ProjectsGrid initialProjects={projects} />

@@ -18,6 +18,7 @@ import {
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import DeleteProjectModal from "@/components/shared/DeleteProjectModal";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 function LogoDropdown() {
   const [open, setOpen] = useState(false)
@@ -29,6 +30,7 @@ function LogoDropdown() {
   const importRef = useRef<HTMLInputElement>(null)
   const projectsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const isMobile = useIsMobile()
   const isDark = theme === 'dark'
   const btn = isDark ? 'bg-[#1c1c1c] hover:bg-[#3a3a3a] text-white' : 'bg-white hover:bg-[#f0f0f0] text-[#111]'
   const panel = isDark ? 'bg-[#1c1c1c]' : 'bg-white border-[#e0e0e0]'
@@ -96,15 +98,21 @@ function LogoDropdown() {
 
           <div className={`h-px my-1 ${divider}`} />
 
-          <div className="relative" onMouseEnter={handleProjectsEnter} onMouseLeave={handleProjectsLeave}>
-            <button className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-lg ${item}`}>
+          <div className="relative"
+            onMouseEnter={isMobile ? undefined : handleProjectsEnter}
+            onMouseLeave={isMobile ? undefined : handleProjectsLeave}>
+            <button
+              onClick={() => { if (isMobile) setShowProjects(v => !v) }}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors rounded-lg ${item}`}>
               <FolderOpen size={15} />
               <span className="flex-1 text-left">Projects</span>
-              <ChevronDown size={11} className={`${chevron} -rotate-90`} />
+              <ChevronDown size={11} className={`${chevron} -rotate-90 md:-rotate-90 ${showProjects && isMobile ? 'rotate-0' : ''}`} />
             </button>
             {showProjects && (
-              <div className={`absolute left-[calc(100%+8px)] top-0  w-65 rounded-xl shadow-xl py-2 px-2 max-h-64 overflow-y-auto z-60 ${panel}`}
-                style={{ marginLeft: '4px' }} onMouseEnter={handleProjectsEnter} onMouseLeave={handleProjectsLeave}>
+              // Mobile: drop straight below (avoids right-edge clipping).
+              // Desktop: fly out to the right exactly as before.
+              <div className={`absolute top-full left-0 mt-1 w-full md:top-0 md:left-[calc(100%+8px)] md:mt-0 md:ml-1 md:w-65 rounded-xl shadow-xl py-2 px-2 max-h-64 overflow-y-auto z-60 ${panel}`}
+                onMouseEnter={isMobile ? undefined : handleProjectsEnter} onMouseLeave={isMobile ? undefined : handleProjectsLeave}>
                 <button onClick={() => { router.push('/workflow/new'); setOpen(false); setShowProjects(false) }}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg ${item}`}>
                   + New workflow
@@ -231,7 +239,8 @@ function PanelToggles() {
   const active = isDark ? 'bg-[#2a2a2a] text-white border-[#444]' : 'bg-[#e8e8e8] text-[#111] border-[#ccc]'
   const inactive = isDark ? 'bg-[#1c1c1c] text-white border-[#2a2a2a]' : 'bg-white text-black border-[#e0e0e0]'
   return (
-    <div className="flex items-center gap-2">
+    // Mobile uses the right-edge buttons in RightSidebar instead
+    <div className="hidden md:flex items-center gap-2">
       {(['assets', 'history'] as const).map(panel => (
         <button key={panel} onClick={() => setRightPanel(panel)}
           className={`px-2.5 py-1.5 rounded-lg text-sm transition-all border capitalize ${rightPanel === panel ? active : inactive}`}>
@@ -247,13 +256,16 @@ export default function TopBar() {
   const isDark = theme === 'dark'
   return (
     <div className="absolute top-4 left-4 z-50 w-[calc(100%-24px)] flex items-center justify-between">
-      <div className={`flex items-center gap-2 border  rounded-xl px-2 py-2 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-120`}>
+      <div className={`flex items-center gap-2 border shadow-lg rounded-xl px-2 py-2 ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a]' : 'bg-white border-[#e0e0e0]'} min-w-0 max-w-[70vw] md:max-w-120`}>
         <LogoDropdown />
         <ProjectName />
         <SaveIndicator />
       </div>
       <div className=" -mt-6 flex items-center gap-2 mr-3">
-        <ThemeToggle />
+        {/* Theme toggle moves to the bottom-right on mobile */}
+        <div className="hidden md:block">
+          <ThemeToggle />
+        </div>
         <PanelToggles />
       </div>
     </div>

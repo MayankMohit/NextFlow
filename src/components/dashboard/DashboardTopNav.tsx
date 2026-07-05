@@ -5,7 +5,7 @@ import { PenTool } from "lucide-react";
 
 export default function DashboardTopNav() {
   return (
-    <nav className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-[#1c1c1c]">
+    <nav className="sticky top-0 z-40 flex items-center justify-between px-4 md:px-6 py-3 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-[#1c1c1c]">
       <Link href="/" className="flex items-center gap-2.5">
         <Image src="/logo.png" alt="NextFlow" width={26} height={26} />
         <span className="text-white font-semibold text-base">NextFlow</span>

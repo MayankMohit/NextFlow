@@ -12,6 +12,7 @@ import {
   type FinalConnectionState,
   useReactFlow,
   useStore,
+  useStoreApi,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useWorkflowStore, checkIsValidConnection } from '@/store/workflowStore'
@@ -29,6 +30,7 @@ import { Scissors, Play, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { upload } from '@vercel/blob/client'
 import { shallow } from 'zustand/shallow'
+import { useIsMobile } from '@/hooks/useIsMobile'
 
 const nodeTypes = {
   textNode: TextNode,
@@ -328,7 +330,17 @@ export default function WorkflowCanvas() {
     [nodes, edges],
   )
   const { screenToFlowPosition, getEdges, getNode, deleteElements, getViewport, setViewport } = useReactFlow()
+  const storeApi = useStoreApi()
   const isDark = theme === 'dark'
+  const isMobile = useIsMobile()
+
+  // Touch has no shift key, so force ReactFlow's multi-select mode on for
+  // mobile: each tap then toggles a node in/out of the selection instead of
+  // replacing it. RF only writes this flag from a key-press effect (never
+  // fires on touch), so our value persists. Desktop keeps shift-to-multiselect.
+  useEffect(() => {
+    storeApi.setState({ multiSelectionActive: isMobile })
+  }, [isMobile, storeApi])
 
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -636,11 +648,11 @@ export default function WorkflowCanvas() {
 
   // ── Cut overlay handlers ──────────────────────────────────────────────────
 
-  const handleCutMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return
+  // Shared by mouse and touch so the cut tool works identically on mobile
+  const beginCut = useCallback((clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect()
-    const lx = e.clientX - rect.left
-    const ly = e.clientY - rect.top
+    const lx = clientX - rect.left
+    const ly = clientY - rect.top
     isDrawing.current = true
     lastCursorLocal.current = { x: lx, y: ly }
     // Reset accumulated angle for each new stroke
@@ -648,10 +660,15 @@ export default function WorkflowCanvas() {
     setCutPoints([{ x: lx, y: ly }])
   }, [])
 
-  const handleCutMouseMove = useCallback((e: React.MouseEvent) => {
+  const handleCutMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    beginCut(e.clientX, e.clientY)
+  }, [beginCut])
+
+  const moveCut = useCallback((clientX: number, clientY: number) => {
     const rect = containerRef.current!.getBoundingClientRect()
-    const lx = e.clientX - rect.left
-    const ly = e.clientY - rect.top
+    const lx = clientX - rect.left
+    const ly = clientY - rect.top
 
     // Update rotation from movement direction (only when moved > 3px to reduce noise)
     if (lastCursorLocal.current) {
@@ -689,7 +706,11 @@ export default function WorkflowCanvas() {
     }
   }, [])
 
-  const handleCutMouseUp = useCallback((e: React.MouseEvent) => {
+  const handleCutMouseMove = useCallback((e: React.MouseEvent) => {
+    moveCut(e.clientX, e.clientY)
+  }, [moveCut])
+
+  const endCut = useCallback(() => {
     if (!isDrawing.current || cutPoints.length < 2) {
       isDrawing.current = false
       setCutPoints([])
@@ -734,11 +755,19 @@ export default function WorkflowCanvas() {
 
   // ── ReactFlow mode props ──────────────────────────────────────────────────
 
-  const rfProps = canvasTool === 'select'
+  const desktopRfProps = canvasTool === 'select'
     ? { selectionOnDrag: true, panOnDrag: [1, 2] as number[], selectionMode: SelectionMode.Partial, nodesDraggable: true }
     : canvasTool === 'pan'
     ? { selectionOnDrag: false, panOnDrag: true as const, nodesDraggable: false }
     : { selectionOnDrag: false, panOnDrag: false as const, nodesDraggable: false }
+
+  // Mobile: one-finger pan, pinch zoom (zoomOnPinch is already on), drag
+  // nodes in select mode. Desktop props above are untouched.
+  const rfProps = isMobile
+    ? canvasTool === 'cut'
+      ? { selectionOnDrag: false, panOnDrag: false as const, nodesDraggable: false }
+      : { selectionOnDrag: false, panOnDrag: true as const, nodesDraggable: canvasTool === 'select' }
+    : desktopRfProps
 
   return (
     <div ref={containerRef} className="w-full h-full relative" onDragOver={onDragOver} onDrop={onDrop}>
@@ -772,7 +801,7 @@ export default function WorkflowCanvas() {
           size={1}
           color={isDark ? '#2a2a2a' : '#c4c4c4'}
         />
-        <MiniMap
+        {!isMobile && <MiniMap
           position="bottom-right"
           style={{
             background: isDark ? '#1c1c1c' : '#e5e5e5',
@@ -783,7 +812,7 @@ export default function WorkflowCanvas() {
           }}
           maskColor={isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)'}
           nodeColor={isDark ? '#3a3a3a' : '#bbb'}
-        />
+        />}
       </ReactFlow>
 
       {/* Group run button — appears whenever 2+ nodes are selected */}
@@ -793,6 +822,7 @@ export default function WorkflowCanvas() {
           isDark={isDark}
         />
       )}
+
 
       {/* Add-node context modal */}
       {addNodeCtx && (
@@ -831,10 +861,13 @@ export default function WorkflowCanvas() {
       {canvasTool === 'cut' && (
         <div
           className="absolute inset-0 z-10"
-          style={{ cursor: 'none' }}
+          style={{ cursor: 'none', touchAction: 'none' }}
           onMouseDown={handleCutMouseDown}
           onMouseMove={handleCutMouseMove}
-          onMouseUp={handleCutMouseUp}
+          onMouseUp={endCut}
+          onTouchStart={(e) => { const t = e.touches[0]; if (t) beginCut(t.clientX, t.clientY) }}
+          onTouchMove={(e) => { const t = e.touches[0]; if (t) moveCut(t.clientX, t.clientY) }}
+          onTouchEnd={endCut}
           onMouseLeave={() => {
             isDrawing.current = false
             lastCursorLocal.current = null
