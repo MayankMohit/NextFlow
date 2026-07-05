@@ -213,8 +213,37 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
             </select>
           </div>
 
+          <div className="flex items-center gap-2">
+            <span className={`text-xs w-14 shrink-0 ${labelColor}`}>
+              Max size
+            </span>
+            <input
+              type="number"
+              min={1}
+              defaultValue={(data.maxSize as number) ?? ""}
+              onChange={(e) =>
+                updateNodeData(id, {
+                  maxSize: Number(e.target.value) || undefined,
+                })
+              }
+              placeholder="off"
+              className={`flex-1 min-w-0 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+            />
+            <select
+              defaultValue={(data.maxSizeUnit as string) ?? "KB"}
+              onChange={(e) =>
+                updateNodeData(id, { maxSizeUnit: e.target.value })
+              }
+              className={`nodrag w-14 shrink-0 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+            >
+              <option value="KB">KB</option>
+              <option value="MB">MB</option>
+            </select>
+          </div>
+
           <p className={`text-xs ${hintColor}`}>
-            leave height empty to keep aspect ratio
+            leave height empty to keep aspect ratio · max size compresses the
+            output under the target
           </p>
         </div>
 

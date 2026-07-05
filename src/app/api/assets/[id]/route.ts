@@ -25,9 +25,10 @@ export async function DELETE(
 
   await prisma.asset.delete({ where: { id } });
 
-  // Only Blob-hosted files can be deleted from storage; external URLs
+  // Only files we own (uploads/ or outputs/) can be deleted from storage;
+  // demo/ blobs are shared by the sample workflow and external URLs
   // (old Transloadit links) just lose their DB row.
-  if (asset.url.includes(".blob.vercel-storage.com/")) {
+  if (/\.blob\.vercel-storage\.com\/(outputs|uploads)\//.test(asset.url)) {
     await del(asset.url).catch(() => { /* row is gone; file cleanup is best-effort */ });
   }
 

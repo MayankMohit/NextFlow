@@ -27,6 +27,8 @@ import ResizeImageNode from '@/components/nodes/ResizeImageNode'
 import GradientEdge from '@/components/edges/GradientEdge'
 import { Scissors, Play, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { upload } from '@vercel/blob/client'
+import { shallow } from 'zustand/shallow'
 
 const nodeTypes = {
   textNode: TextNode,
@@ -263,7 +265,7 @@ function GroupRunButton({ selectedNodeIds, isDark }: GroupRunButtonProps) {
 
   // Selected nodes and current viewport transform from RF's internal store.
   // transform is [panX, panY, zoom]; flow→screen: screenX = flowX*zoom + panX
-  const selectedRFNodes = useStore(s => s.nodes.filter(n => n.selected))
+  const selectedRFNodes = useStore(s => s.nodes.filter(n => n.selected), shallow)
   const [panX, panY, zoom] = useStore(s => s.transform)
 
   const isAnyRunning = selectedNodeIds.some(id => runningNodeIds.has(id))
@@ -335,8 +337,12 @@ export default function WorkflowCanvas() {
   // the `selected` flag, without needing any extra state.
   const RUNNABLE_TYPES = new Set(['cropImageNode', 'extractFrameNode', 'llmNode'])
 
-  const selectedNodeIds = useStore(s =>
-    s.nodes.filter(n => n.selected).map(n => n.id)
+  // shallow equality: the selector builds a fresh array every call — without
+  // it, every RF store update re-renders the canvas (and can cascade into a
+  // "maximum update depth exceeded" loop)
+  const selectedNodeIds = useStore(
+    s => s.nodes.filter(n => n.selected).map(n => n.id),
+    shallow,
   )
   const hasRunnableSelected = useStore(s =>
     s.nodes.some(n => n.selected && RUNNABLE_TYPES.has(n.type ?? ''))
@@ -536,16 +542,97 @@ export default function WorkflowCanvas() {
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') ? 'copy' : 'move'
+  }, [])
+
+  // Upload a dropped file into an upload node (existing or newly created).
+  // data.uploading drives the node's spinner since the upload runs out here.
+  const uploadFileIntoNode = useCallback(async (nodeId: string, kind: 'image' | 'video', file: File) => {
+    const { updateNodeData, recordAsset } = useWorkflowStore.getState()
+    updateNodeData(nodeId, { uploading: true, error: undefined })
+    try {
+      const blob = await upload(`uploads/${file.name}`, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+      })
+      updateNodeData(nodeId, kind === 'image'
+        ? { imageUrl: blob.url, uploading: false }
+        : { videoUrl: blob.url, uploading: false })
+      void recordAsset({ nodeId, type: kind, url: blob.url })
+    } catch (err: unknown) {
+      updateNodeData(nodeId, { uploading: false, error: err instanceof Error ? err.message : 'Upload failed' })
+    }
   }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    const type = e.dataTransfer.getData('application/reactflow')
-    if (!type) return
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
-    addNode({ id: `${type}-${Date.now()}`, type, position, data: getInitialData(type) } as Node)
-  }, [screenToFlowPosition, addNode])
+
+    // Node-palette drag from the sidebar
+    const paletteType = e.dataTransfer.getData('application/reactflow')
+    if (paletteType) {
+      addNode({ id: `${paletteType}-${Date.now()}`, type: paletteType, position, data: getInitialData(paletteType) } as Node)
+      return
+    }
+
+    // Which node (if any) the drop landed on
+    const { nodes: liveNodes, updateNodeData } = useWorkflowStore.getState()
+    const targetId = (e.target as HTMLElement).closest('.react-flow__node')?.getAttribute('data-id') ?? null
+    const targetNode = targetId ? liveNodes.find(n => n.id === targetId) : null
+
+    // Image/video files dropped from the OS or another window
+    const files = Array.from(e.dataTransfer.files)
+      .filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
+    if (files.length > 0) {
+      let usedTarget = false
+      let created = 0
+      for (const file of files) {
+        const kind = file.type.startsWith('image/') ? 'image' as const : 'video' as const
+        const wantedType = kind === 'image' ? 'uploadImageNode' : 'uploadVideoNode'
+        let nodeId: string
+        if (!usedTarget && targetNode?.type === wantedType) {
+          // Dropped on a matching upload node — replace its media
+          nodeId = targetNode.id
+          usedTarget = true
+        } else {
+          nodeId = `${wantedType}-${Date.now()}-${created}`
+          addNode({
+            id: nodeId,
+            type: wantedType,
+            position: { x: position.x + created * 40, y: position.y + created * 40 },
+            data: getInitialData(wantedType),
+          } as Node)
+          created++
+        }
+        void uploadFileIntoNode(nodeId, kind, file)
+      }
+      return
+    }
+
+    // Text drag (selected text, or a media URL from another tab)
+    const text = e.dataTransfer.getData('text/plain').trim()
+    if (!text) return
+    const isImageUrl = /^https?:\/\/\S+\.(png|jpe?g|webp|gif)(\?\S*)?$/i.test(text)
+    const isVideoUrl = /^https?:\/\/\S+\.(mp4|webm|mov|m4v)(\?\S*)?$/i.test(text)
+
+    if (isImageUrl || isVideoUrl) {
+      const wantedType = isImageUrl ? 'uploadImageNode' : 'uploadVideoNode'
+      const dataKey = isImageUrl ? 'imageUrl' : 'videoUrl'
+      if (targetNode?.type === wantedType) {
+        updateNodeData(targetNode.id, { [dataKey]: text })
+      } else {
+        addNode({ id: `${wantedType}-${Date.now()}`, type: wantedType, position, data: { ...getInitialData(wantedType), [dataKey]: text } } as Node)
+      }
+      return
+    }
+
+    if (targetNode?.type === 'textNode') {
+      // textSetAt remounts the uncontrolled textarea so the dropped text shows
+      updateNodeData(targetNode.id, { text, textSetAt: Date.now() })
+    } else {
+      addNode({ id: `textNode-${Date.now()}`, type: 'textNode', position, data: { ...getInitialData('textNode'), text } } as Node)
+    }
+  }, [screenToFlowPosition, addNode, uploadFileIntoNode])
 
   // ── Cut overlay handlers ──────────────────────────────────────────────────
 

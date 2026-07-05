@@ -333,7 +333,8 @@ interface WorkflowStore {
   deleteAsset: (id: string) => Promise<void>
   projects: { id: string; name: string; updatedAt: string }[]
   fetchProjects: () => Promise<void>
-  deleteProject: (id: string) => Promise<void>
+  /** deleteAssets=false keeps the workflow's uploads/outputs (orphaned). */
+  deleteProject: (id: string, deleteAssets?: boolean) => Promise<void>
   canvasTool: 'select' | 'pan' | 'cut'
   setCanvasTool: (tool: 'select' | 'pan' | 'cut') => void
   exportWorkflow: () => void
@@ -566,9 +567,32 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   startRun: async (targetNodeIds: string[]) => {
     if (get().activeRun) return // one run at a time
-    const { nodes, edges, updateNodeData } = get()
+    const { nodes, edges, updateNodeData, completedNodeIds } = get()
 
-    const { passthroughIds, executableIds } = splitPassthrough(nodes, targetNodeIds)
+    // Output nodes are display-only — when one hangs directly off the run set
+    // (and its other inputs, if any, are already satisfied) it joins the run
+    // automatically so the result shows even if it wasn't selected.
+    const targetSet = new Set(targetNodeIds)
+    const satisfied = (sourceId: string): boolean => {
+      if (targetSet.has(sourceId) || completedNodeIds.has(sourceId)) return true
+      const src = nodes.find(n => n.id === sourceId)
+      return src ? PASSTHROUGH.has(src.type ?? '') && passthroughReady(src) : false
+    }
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const n of nodes) {
+        if (n.type !== 'outputNode' || targetSet.has(n.id)) continue
+        const incoming = edges.filter(e => e.target === n.id)
+        if (incoming.length === 0) continue
+        if (incoming.some(e => targetSet.has(e.source)) && incoming.every(e => satisfied(e.source))) {
+          targetSet.add(n.id)
+          grew = true
+        }
+      }
+    }
+
+    const { passthroughIds, executableIds } = splitPassthrough(nodes, [...targetSet])
 
     for (const id of passthroughIds) {
       updateNodeData(id, { status: 'success' })
@@ -928,10 +952,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       if (res.ok) set({ projects: await res.json() })
     } catch { /**/ }
   },
-  deleteProject: async (id) => {
+  deleteProject: async (id, deleteAssets = true) => {
     const prev = get().projects
     set(s => ({ projects: s.projects.filter(p => p.id !== id) }))
-    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/projects/${id}?deleteAssets=${deleteAssets}`, { method: 'DELETE' })
     if (!res.ok) { set({ projects: prev }); return }
 
     // Deleted the workflow that's currently open — reset to a fresh canvas

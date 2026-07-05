@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
 import MiniCanvas, { type MiniNode, type MiniEdge } from "@/components/shared/MiniCanvas";
+import DeleteProjectModal from "@/components/shared/DeleteProjectModal";
 
 export type DashboardProject = {
   id: string;
@@ -56,12 +57,16 @@ function ProjectCard({
     else setDraft(project.name);
   };
 
-  const remove = async () => {
+  const remove = async (deleteAssets: boolean) => {
     setBusy(true);
-    const res = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/projects/${project.id}?deleteAssets=${deleteAssets}`, { method: "DELETE" });
     setBusy(false);
     setConfirming(false);
-    if (res.ok) onDeleted(project.id);
+    if (res.ok) {
+      onDeleted(project.id);
+      // Re-fetch server data so "Recent creations" drops the deleted assets
+      router.refresh();
+    }
   };
 
   return (
@@ -126,27 +131,13 @@ function ProjectCard({
       )}
 
       {confirming && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/80 backdrop-blur-sm px-4">
-          <p className="text-white text-xs text-center">
-            Delete &ldquo;{project.name}&rdquo; and all its assets?
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={remove}
-              disabled={busy}
-              className="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium transition-colors"
-            >
-              {busy && <Loader2 size={11} className="animate-spin" />}
-              Delete
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="px-3 py-1 rounded-lg bg-[#2a2a2a] hover:bg-[#333] text-white text-xs transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <DeleteProjectModal
+          projectName={project.name}
+          isDark
+          busy={busy}
+          onCancel={() => setConfirming(false)}
+          onConfirm={remove}
+        />
       )}
     </div>
   );

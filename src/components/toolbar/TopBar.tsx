@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import DeleteProjectModal from "@/components/shared/DeleteProjectModal";
 
 function LogoDropdown() {
   const [open, setOpen] = useState(false)
@@ -113,33 +114,37 @@ function LogoDropdown() {
                   <div className={`px-3 py-2 text-xs ${muted}`}>No projects yet</div>
                 ) : projects.map(p => (
                   <div key={p.id} className="group relative">
-                    {confirmDeleteId === p.id ? (
-                      <div className={`flex items-center gap-1 px-3 py-2 rounded-lg ${item}`}>
-                        <span className={`text-xs flex-1 ${isDark ? 'text-[#aaa]' : 'text-[#555]'}`}>Delete &ldquo;{p.name}&rdquo;?</span>
-                        <button onClick={() => { deleteProject(p.id); setConfirmDeleteId(null) }}
-                          className="text-xs text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded hover:bg-red-900/30 transition-colors">Yes</button>
-                        <button onClick={() => setConfirmDeleteId(null)}
-                          className={`text-xs px-1.5 py-0.5 rounded transition-colors ${isDark ? 'text-[#666] hover:text-white hover:bg-[#333]' : 'text-[#aaa] hover:text-[#111] hover:bg-[#e0e0e0]'}`}>No</button>
-                      </div>
-                    ) : (
-                      <div className={`flex items-center transition-colors rounded-lg ${item}`}>
-                        <button onClick={() => { router.push(`/workflow/${p.id}`); setOpen(false); setShowProjects(false) }}
-                          className={`flex items-center gap-2 px-3 py-2 text-xs flex-1 min-w-0 ${isDark ? 'text-white' : 'text-[#111]'}`}>
-                          <ExternalLink size={11} className={`${muted} shrink-0`} />
-                          <span className="truncate text-left">{p.name}</span>
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(p.id) }}
-                          className="opacity-0 group-hover:opacity-100 px-2 py-2 text-[#555] hover:text-red-400 transition-all shrink-0">
-                          <Trash2 size={11} />
-                        </button>
-                      </div>
-                    )}
+                    <div className={`flex items-center transition-colors rounded-lg ${item}`}>
+                      <button onClick={() => { router.push(`/workflow/${p.id}`); setOpen(false); setShowProjects(false) }}
+                        className={`flex items-center gap-2 px-3 py-2 text-xs flex-1 min-w-0 ${isDark ? 'text-white' : 'text-[#111]'}`}>
+                        <ExternalLink size={11} className={`${muted} shrink-0`} />
+                        <span className="truncate text-left">{p.name}</span>
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(p.id) }}
+                        className="opacity-0 group-hover:opacity-100 px-2 py-2 text-[#555] hover:text-red-400 transition-all shrink-0">
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {confirmDeleteId && (
+        <DeleteProjectModal
+          projectName={projects.find(p => p.id === confirmDeleteId)?.name ?? 'Untitled'}
+          isDark={isDark}
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={(deleteAssets) => {
+            deleteProject(confirmDeleteId, deleteAssets)
+            setConfirmDeleteId(null)
+            setOpen(false)
+            setShowProjects(false)
+          }}
+        />
       )}
     </div>
   )

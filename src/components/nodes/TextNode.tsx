@@ -173,6 +173,9 @@ export default function TextNode({ data, selected, id }: NodeProps) {
         <div className="p-3">
           <div className="relative">
             <textarea
+              // textSetAt changes when text is dropped onto the node from
+              // outside — remounting re-reads defaultValue (uncontrolled)
+              key={typeof data.textSetAt === 'number' ? data.textSetAt : 'ta'}
               ref={textareaRef}
               placeholder="Enter text..."
               defaultValue={(data.text as string) ?? ''}

@@ -31,7 +31,7 @@ export async function PATCH(
 const MANAGED_BLOB_RE = /\.blob\.vercel-storage\.com\/(outputs|uploads)\//
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { userId } = await auth()
@@ -42,13 +42,21 @@ export async function DELETE(
   if (!workflow) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (workflow.userId !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  // ?deleteAssets=false keeps the assets (workflowId is SetNull on delete,
+  // so they survive orphaned and stay in the dashboard gallery)
+  const deleteAssets = req.nextUrl.searchParams.get('deleteAssets') !== 'false'
+
+  if (!deleteAssets) {
+    await prisma.workflow.delete({ where: { id } })
+    return NextResponse.json({ ok: true })
+  }
+
   const assets = await prisma.asset.findMany({
     where: { workflowId: id },
     select: { url: true },
   })
 
-  // Asset rows would otherwise be orphaned (workflowId is SetNull on delete);
-  // runs/nodeRuns cascade with the workflow.
+  // Runs/nodeRuns cascade with the workflow; asset rows need explicit deletion.
   await prisma.$transaction([
     prisma.asset.deleteMany({ where: { workflowId: id } }),
     prisma.workflow.delete({ where: { id } }),

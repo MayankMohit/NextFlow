@@ -12,7 +12,9 @@ const NODE_COLOR = '#067ef8'
 
 export default function UploadImageNode({ selected, data, id }: NodeProps) {
   const { updateNodeData, theme, runNode, saveWorkflow, recordAsset } = useWorkflowStore()
-  const [uploading, setUploading] = useState(false)
+  const [localUploading, setLocalUploading] = useState(false)
+  // data.uploading = drag-and-drop upload running in the canvas
+  const uploading = localUploading || data.uploading === true
   const [uploadError, setUploadError] = useState<string | null>(null)
   const isDark = theme === 'dark'
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover()
@@ -58,7 +60,7 @@ const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setUploading(true); setUploadError(null)
+    setLocalUploading(true); setUploadError(null)
     try {
       // Direct-to-Blob upload: permanent URL, no server body-size limit
       const blob = await upload(`uploads/${file.name}`, file, {
@@ -69,7 +71,7 @@ const borderColor = selected ? NODE_COLOR : isDark ? '#2a2a2a' : '#e0e0e0'
       void recordAsset({ nodeId: id, type: 'image', url: blob.url })
     } catch (err: unknown) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed')
-    } finally { setUploading(false) }
+    } finally { setLocalUploading(false) }
   }
 
   return (
