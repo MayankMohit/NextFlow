@@ -15,6 +15,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
+import NextImage from "next/image";
 import { useRouter } from "next/navigation";
 import { useWorkflowStore } from "@/store/workflowStore";
 
@@ -228,6 +229,7 @@ export default function LeftSidebar() {
       <div
         className={`p-6 border-b ${border} flex items-center gap-2 overflow-hidden`}
       >
+        <NextImage src="/logo.png" alt="NextFlow" width={24} height={24} className="shrink-0" />
         {!collapsed && (
           <span className={`${textMain} font-semibold text-lg truncate`}>
             NextFlow

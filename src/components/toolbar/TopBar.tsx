@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 function LogoDropdown() {
   const [open, setOpen] = useState(false)
@@ -62,7 +63,7 @@ function LogoDropdown() {
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen(v => !v)} className={`flex items-center gap-1.5 px-1.5 py-1 rounded-md transition-colors ${btn}`}>
-        <span className="text-lg font-black">NF</span>
+        <Image src="/logo.png" alt="NextFlow" width={22} height={22} />
         <ChevronDown size={12} className={`${muted} transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
