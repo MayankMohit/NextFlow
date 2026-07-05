@@ -203,6 +203,15 @@ function maybeAddAsset(
 
 const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
 
+// A passthrough source only satisfies downstream dependencies while its data
+// still exists — deleting an uploaded asset clears imageUrl/videoUrl.
+const passthroughReady = (node: Node): boolean => {
+  if (node.type === 'textNode') return true
+  if (node.type === 'uploadImageNode') return !!node.data.imageUrl
+  if (node.type === 'uploadVideoNode') return !!node.data.videoUrl
+  return false
+}
+
 function splitPassthrough(nodes: Node[], ids: string[]) {
   const passthroughIds: string[] = []
   const executableIds: string[] = []
@@ -296,8 +305,8 @@ interface WorkflowStore {
 
   /**
    * runNode(nodeId)
-   * Runs the given node, then automatically chains to all downstream nodes
-   * in topological order — layer by layer, showing progress as it goes.
+   * Start nodes (no incoming edges) chain into every downstream node whose
+   * dependencies are satisfied; mid-graph nodes run alone.
    */
   runNode: (nodeId: string) => Promise<void>
 
@@ -711,7 +720,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     return incomingEdges.every(e => {
       if (completedNodeIds.has(e.source)) return true
       const srcNode = nodes.find(n => n.id === e.source)
-      return srcNode ? PASSTHROUGH.has(srcNode.type ?? '') : false
+      return srcNode ? PASSTHROUGH.has(srcNode.type ?? '') && passthroughReady(srcNode) : false
     })
   },
 
@@ -719,7 +728,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   // runNode — runs the clicked node plus all downstream nodes (one run).
   // ---------------------------------------------------------------------------
   runNode: async (startNodeId: string) => {
-    const { nodes, edges, updateNodeData, canNodeRun } = get()
+    const { nodes, edges, updateNodeData, canNodeRun, completedNodeIds } = get()
 
     if (get().runningNodeIds.has(startNodeId) || get().activeRun) return
 
@@ -731,8 +740,47 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       return
     }
 
-    // All nodes reachable from startNode (inclusive)
-    await get().startRun(reachableFrom([startNodeId], edges, nodes))
+    // Mid-graph nodes ("Run" button) execute alone; only start nodes
+    // ("Run workflow from this node") chain into their downstream graph.
+    const isStart = !edges.some(e => e.target === startNodeId)
+    if (!isStart) {
+      await get().startRun([startNodeId])
+      return
+    }
+
+    // Expand downstream from the start node, but only admit a node once EVERY
+    // one of its upstream dependencies is satisfied: part of this run, already
+    // completed in a previous run, or a passthrough (data lives in node.data).
+    // Reachable nodes that never qualify (they also depend on an unfinished
+    // branch) are flagged instead of silently running with missing inputs.
+    const isSatisfied = (sourceId: string, runSet: Set<string>) => {
+      if (runSet.has(sourceId) || completedNodeIds.has(sourceId)) return true
+      const src = nodes.find(n => n.id === sourceId)
+      return src ? PASSTHROUGH.has(src.type ?? '') && passthroughReady(src) : false
+    }
+
+    const runSet = new Set([startNodeId])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const e of edges) {
+        if (!runSet.has(e.source) || runSet.has(e.target)) continue
+        const ready = edges
+          .filter(p => p.target === e.target)
+          .every(p => isSatisfied(p.source, runSet))
+        if (ready) { runSet.add(e.target); grew = true }
+      }
+    }
+
+    const blocked = reachableFrom([startNodeId], edges, nodes).filter(id => !runSet.has(id))
+    for (const id of blocked) {
+      updateNodeData(id, {
+        status: 'error',
+        error: 'Previous nodes have not completed yet.',
+      })
+    }
+
+    await get().startRun(nodes.filter(n => runSet.has(n.id)).map(n => n.id))
   },
 
   // ---------------------------------------------------------------------------
@@ -756,7 +804,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         .filter(e => {
           if (get().completedNodeIds.has(e.source)) return false
           const src = nodes.find(n => n.id === e.source)
-          return src ? !PASSTHROUGH.has(src.type ?? '') : false
+          return src ? !(PASSTHROUGH.has(src.type ?? '') && passthroughReady(src)) : false
         })
       if (externalUnfinished.length > 0) blocked.push(id)
       else toRun.push(id)
@@ -844,19 +892,30 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const res = await fetch(`/api/assets/${encodeURIComponent(id)}`, { method: 'DELETE' })
       // 404 = local-only asset that was never persisted — removing it locally is enough
       if (!res.ok && res.status !== 404) { set({ assets: prev }); return }
-      // The blob is gone — clear node previews/uploads still pointing at it
+      // The blob is gone — clear node previews/uploads still pointing at it,
+      // and revoke those nodes' "completed" standing so downstream nodes
+      // can't run against an output that no longer exists.
       if (url) {
-        set({
-          nodes: get().nodes.map(n => {
+        const clearedIds: string[] = []
+        set(s => ({
+          nodes: s.nodes.map(n => {
             const d = n.data as Record<string, unknown>
             if (d.lastOutput !== url && d.imageUrl !== url && d.videoUrl !== url) return n
-            const data = { ...d }
+            clearedIds.push(n.id)
+            const data: Record<string, unknown> = { ...d, status: 'idle' }
             if (data.lastOutput === url) data.lastOutput = null
             if (data.imageUrl === url) data.imageUrl = null
             if (data.videoUrl === url) data.videoUrl = null
             return { ...n, data }
           }),
-        })
+        }))
+        if (clearedIds.length > 0) {
+          set(s => {
+            const next = new Set(s.completedNodeIds)
+            clearedIds.forEach(nid => next.delete(nid))
+            return { completedNodeIds: next }
+          })
+        }
         get().scheduleAutoSave()
       }
     } catch { set({ assets: prev }) }

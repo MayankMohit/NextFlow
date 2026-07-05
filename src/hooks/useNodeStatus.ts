@@ -18,7 +18,11 @@ export function useNodeStatus(id: string) {
     return incoming.every(e => {
       if (completedNodeIds.has(e.source)) return true
       const src = nodes.find(n => n.id === e.source)
-      return src ? PASSTHROUGH.has(src.type ?? '') : false
+      if (!src || !PASSTHROUGH.has(src.type ?? '')) return false
+      // A passthrough source with deleted/missing media can't feed this node
+      if (src.type === 'uploadImageNode') return !!src.data.imageUrl
+      if (src.type === 'uploadVideoNode') return !!src.data.videoUrl
+      return true
     })
   })()
 
