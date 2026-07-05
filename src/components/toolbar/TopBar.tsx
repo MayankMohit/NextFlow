@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Layers,
   Trash2,
+  LayoutDashboard,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -69,6 +70,11 @@ function LogoDropdown() {
 
       {open && (
         <div className={`absolute top-full -left-3 mt-4 w-65  rounded-xl shadow-xl z-50 py-3 px-2 text-sm overflow-visible ${panel}`}>
+          <button onClick={() => { router.push('/'); setOpen(false) }}
+            className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
+            <LayoutDashboard size={15} />Dashboard
+          </button>
+          <div className={`h-px my-1 ${divider}`} />
           <button onClick={() => { saveWorkflow(); setOpen(false) }} disabled={isSaving}
             className={`w-full flex items-center gap-3 px-3 py-2 transition-colors rounded-lg ${item}`}>
             <Save size={15} />{isSaving ? 'Saving...' : 'Save workflow'}

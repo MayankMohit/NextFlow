@@ -10,8 +10,8 @@ import RunRealtimeBridge from '@/components/canvas/RunRealtimeBridge'
 import TopBar from '@/components/toolbar/TopBar'
 import BottomBar from '@/components/toolbar/BottomBar'
 
-function WorkflowPageInner({ id }: { id: string }) {
-  const { loadWorkflow, theme, setTheme } = useWorkflowStore()
+function WorkflowPageInner({ id, template }: { id: string; template?: string }) {
+  const { loadWorkflow, loadSampleWorkflow, theme, setTheme } = useWorkflowStore()
 
   useLayoutEffect(() => {
     const saved = localStorage.getItem('theme') as 'dark' | 'light' | null
@@ -19,8 +19,10 @@ function WorkflowPageInner({ id }: { id: string }) {
   }, [])
 
   useEffect(() => {
-    loadWorkflow(id)
-  }, [id, loadWorkflow])
+    // "Try the sample" from the dashboard lands on /workflow/new?template=sample
+    if (id === 'new' && template === 'sample') loadSampleWorkflow()
+    else loadWorkflow(id)
+  }, [id, template, loadWorkflow, loadSampleWorkflow])
 
   const isDark = theme === 'dark'
   const bg = isDark ? 'bg-[#0a0a0a]' : 'bg-[#f5f5f5]'
@@ -39,11 +41,18 @@ function WorkflowPageInner({ id }: { id: string }) {
   )
 }
 
-export default function WorkflowPage({ params }: { params: Promise<{ id: string }> }) {
+export default function WorkflowPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ template?: string }>
+}) {
   const { id } = use(params)
+  const { template } = use(searchParams)
   return (
     <ReactFlowProvider>
-      <WorkflowPageInner id={id} />
+      <WorkflowPageInner id={id} template={template} />
     </ReactFlowProvider>
   )
 }

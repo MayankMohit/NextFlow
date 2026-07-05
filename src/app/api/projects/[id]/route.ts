@@ -2,6 +2,29 @@ import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { del } from '@vercel/blob'
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+
+const renameSchema = z.object({ name: z.string().trim().min(1).max(120) })
+
+// PATCH — rename a workflow (used by the dashboard project cards)
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+  const parsed = renameSchema.safeParse(await req.json())
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid name' }, { status: 400 })
+
+  const workflow = await prisma.workflow.findUnique({ where: { id } })
+  if (!workflow) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (workflow.userId !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const updated = await prisma.workflow.update({ where: { id }, data: { name: parsed.data.name } })
+  return NextResponse.json({ id: updated.id, name: updated.name })
+}
 
 // Only files we own live under uploads/ or outputs/ — demo/ blobs are shared
 // by the sample workflow across all projects and must never be deleted.
