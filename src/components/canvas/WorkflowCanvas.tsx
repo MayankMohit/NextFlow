@@ -26,7 +26,7 @@ import OutputNode from '@/components/nodes/OutputNode'
 import TextCombineNode from '@/components/nodes/TextCombineNode'
 import ResizeImageNode from '@/components/nodes/ResizeImageNode'
 import GradientEdge from '@/components/edges/GradientEdge'
-import { Scissors, Play, Loader2 } from 'lucide-react'
+import { Scissors, Play, Loader2, BoxSelect } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { upload } from '@vercel/blob/client'
 import { shallow } from 'zustand/shallow'
@@ -329,6 +329,12 @@ export default function WorkflowCanvas() {
     (connection: Edge | Connection) => checkIsValidConnection(connection as Connection, nodes, edges),
     [nodes, edges],
   )
+
+  // Mobile "select all" — dispatch a select change for every node through the
+  // normal onNodesChange path so the store stays in sync.
+  const selectAll = useCallback(() => {
+    onNodesChange(nodes.map(n => ({ id: n.id, type: 'select' as const, selected: true })))
+  }, [nodes, onNodesChange])
   const { screenToFlowPosition, getEdges, getNode, deleteElements, getViewport, setViewport } = useReactFlow()
   const storeApi = useStoreApi()
   const isDark = theme === 'dark'
@@ -821,6 +827,18 @@ export default function WorkflowCanvas() {
           selectedNodeIds={selectedNodeIds}
           isDark={isDark}
         />
+      )}
+
+      {/* Mobile: "select all" tab on the left wall, shown while a node is selected */}
+      {selectedNodeIds.length > 0 && (
+        <button
+          onClick={selectAll}
+          title="Select all nodes"
+          className={`md:hidden fixed left-0 top-24 z-40 flex items-center gap-1.5 h-10 pl-2.5 pr-3 rounded-r-xl border border-l-0 shadow-lg transition-colors ${isDark ? 'bg-[#1c1c1c] border-[#2a2a2a] text-white' : 'bg-white border-[#e0e0e0] text-[#111]'}`}
+        >
+          <BoxSelect size={15} />
+          <span className="text-xs font-medium">Select all</span>
+        </button>
       )}
 
 
