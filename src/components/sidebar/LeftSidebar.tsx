@@ -6,12 +6,17 @@ import {
   Type,
   Image,
   Video,
+  Music,
   Brain,
   Crop,
   Film,
   Monitor,
   Combine,
   Scaling,
+  Sparkles,
+  Wand2,
+  Volume2,
+  AudioLines,
   LogOut,
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
@@ -38,6 +43,12 @@ const nodeButtons = [
     icon: Video,
     type: "uploadVideoNode",
     description: "Upload mp4/webm",
+  },
+  {
+    label: "Upload Audio",
+    icon: Music,
+    type: "uploadAudioNode",
+    description: "Upload mp3/wav/m4a",
   },
   {
     label: "LLM",
@@ -68,6 +79,30 @@ const nodeButtons = [
     icon: Scaling,
     type: "resizeImageNode",
     description: "Resize / compress image",
+  },
+  {
+    label: "Generate Image",
+    icon: Sparkles,
+    type: "imageGenNode",
+    description: "Generate image from a prompt",
+  },
+  {
+    label: "Edit Image",
+    icon: Wand2,
+    type: "imageEditNode",
+    description: "Edit an image with a prompt",
+  },
+  {
+    label: "Text to Speech",
+    icon: Volume2,
+    type: "ttsNode",
+    description: "Turn text into spoken audio",
+  },
+  {
+    label: "Transcribe",
+    icon: AudioLines,
+    type: "transcribeNode",
+    description: "Turn audio into text",
   },
   {
     label: "Output",
@@ -102,10 +137,13 @@ const getInitialData = (type: string) => {
       return { label: "Upload Image", imageUrl: null, status: "idle" };
     case "uploadVideoNode":
       return { label: "Upload Video", videoUrl: null, status: "idle" };
+    case "uploadAudioNode":
+      return { label: "Upload Audio", audioUrl: null, status: "idle" };
     case "llmNode":
       return {
         label: "LLM",
-        model: "gemini-3.1-flash-lite-preview",
+        provider: "gemini",
+        model: "gemini-3.1-flash-lite",
         result: null,
         status: "idle",
       };
@@ -126,6 +164,14 @@ const getInitialData = (type: string) => {
       return { label: "Text Combine", template: "", status: "idle" };
     case "resizeImageNode":
       return { label: "Resize Image", width: 512, fit: "cover", status: "idle" };
+    case "imageGenNode":
+      return { label: "Generate Image", prompt: "", model: "flux-1-schnell", steps: 4, status: "idle" };
+    case "imageEditNode":
+      return { label: "Edit Image", prompt: "", model: "flux-2-klein-4b", status: "idle" };
+    case "ttsNode":
+      return { label: "Text to Speech", text: "", model: "melotts", lang: "en", speaker: "luna", status: "idle" };
+    case "transcribeNode":
+      return { label: "Transcribe", language: "", status: "idle" };
     default:
       return { label: type, status: "idle" };
   }

@@ -61,7 +61,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 876.49, y: 289.4 },
       data: {
         label: 'LLM',
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.1-flash-lite',
         result: null,
         status: 'idle',
         connectedInputs: ['system_prompt', 'user_message', 'images'],
@@ -107,7 +107,7 @@ export const SAMPLE_WORKFLOW = {
       position: { x: 1270.48, y: 627.59 },
       data: {
         label: 'LLM',
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.1-flash-lite',
         result: null,
         status: 'idle',
         connectedInputs: ['system_prompt', 'user_message', 'images'],

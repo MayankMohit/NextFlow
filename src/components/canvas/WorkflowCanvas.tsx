@@ -19,12 +19,17 @@ import { useWorkflowStore, checkIsValidConnection } from '@/store/workflowStore'
 import TextNode from '@/components/nodes/TextNode'
 import UploadImageNode from '@/components/nodes/UploadImageNode'
 import UploadVideoNode from '@/components/nodes/UploadVideoNode'
+import UploadAudioNode from '@/components/nodes/UploadAudioNode'
 import LLMNode from '@/components/nodes/LLMNode'
 import CropImageNode from '@/components/nodes/CropImageNode'
 import ExtractFrameNode from '@/components/nodes/ExtractFrameNode'
 import OutputNode from '@/components/nodes/OutputNode'
 import TextCombineNode from '@/components/nodes/TextCombineNode'
 import ResizeImageNode from '@/components/nodes/ResizeImageNode'
+import ImageGenNode from '@/components/nodes/ImageGenNode'
+import ImageEditNode from '@/components/nodes/ImageEditNode'
+import TTSNode from '@/components/nodes/TTSNode'
+import TranscribeNode from '@/components/nodes/TranscribeNode'
 import GradientEdge from '@/components/edges/GradientEdge'
 import { Scissors, Play, Loader2, BoxSelect } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -36,12 +41,17 @@ const nodeTypes = {
   textNode: TextNode,
   uploadImageNode: UploadImageNode,
   uploadVideoNode: UploadVideoNode,
+  uploadAudioNode: UploadAudioNode,
   llmNode: LLMNode,
   cropImageNode: CropImageNode,
   extractFrameNode: ExtractFrameNode,
   outputNode: OutputNode,
   textCombineNode: TextCombineNode,
   resizeImageNode: ResizeImageNode,
+  imageGenNode: ImageGenNode,
+  imageEditNode: ImageEditNode,
+  ttsNode: TTSNode,
+  transcribeNode: TranscribeNode,
 }
 
 const edgeTypes = {
@@ -53,12 +63,17 @@ const getInitialData = (type: string) => {
     case 'textNode': return { label: 'Text', text: '', status: 'idle' }
     case 'uploadImageNode': return { label: 'Upload Image', imageUrl: null, status: 'idle' }
     case 'uploadVideoNode': return { label: 'Upload Video', videoUrl: null, status: 'idle' }
-    case 'llmNode': return { label: 'LLM', model: 'gemini-3.1-flash-lite-preview', result: null, status: 'idle' }
+    case 'uploadAudioNode': return { label: 'Upload Audio', audioUrl: null, status: 'idle' }
+    case 'llmNode': return { label: 'LLM', provider: 'gemini', model: 'gemini-3.1-flash-lite', result: null, status: 'idle' }
     case 'cropImageNode': return { label: 'Crop Image', xPercent: 0, yPercent: 0, widthPercent: 100, heightPercent: 100, status: 'idle' }
     case 'extractFrameNode': return { label: 'Extract Frame', timestamp: '0', status: 'idle' }
     case 'outputNode': return { label: 'Output', lastOutput: null, status: 'idle' }
     case 'textCombineNode': return { label: 'Text Combine', template: '', status: 'idle' }
     case 'resizeImageNode': return { label: 'Resize Image', width: 512, fit: 'cover', status: 'idle' }
+    case 'imageGenNode': return { label: 'Generate Image', prompt: '', model: 'flux-1-schnell', steps: 4, status: 'idle' }
+    case 'imageEditNode': return { label: 'Edit Image', prompt: '', model: 'flux-2-klein-4b', status: 'idle' }
+    case 'ttsNode': return { label: 'Text to Speech', text: '', model: 'melotts', lang: 'en', speaker: 'luna', status: 'idle' }
+    case 'transcribeNode': return { label: 'Transcribe', language: '', status: 'idle' }
     default: return { label: type, status: 'idle' }
   }
 }
@@ -67,43 +82,63 @@ const NODE_TYPES_LIST = [
   { type: 'textNode', label: 'Text' },
   { type: 'uploadImageNode', label: 'Upload Image' },
   { type: 'uploadVideoNode', label: 'Upload Video' },
+  { type: 'uploadAudioNode', label: 'Upload Audio' },
   { type: 'llmNode', label: 'LLM' },
   { type: 'cropImageNode', label: 'Crop Image' },
   { type: 'extractFrameNode', label: 'Extract Frame' },
   { type: 'textCombineNode', label: 'Text Combine' },
   { type: 'resizeImageNode', label: 'Resize Image' },
+  { type: 'imageGenNode', label: 'Generate Image' },
+  { type: 'imageEditNode', label: 'Edit Image' },
+  { type: 'ttsNode', label: 'Text to Speech' },
+  { type: 'transcribeNode', label: 'Transcribe' },
   { type: 'outputNode', label: 'Output' },
 ]
 
 // --- Connect-on-drop smart modal ---
 
-const SOURCE_OUTPUT_MAP: Record<string, 'image' | 'video' | 'text'> = {
+const SOURCE_OUTPUT_MAP: Record<string, 'image' | 'video' | 'audio' | 'text'> = {
   textNode: 'text',
   uploadImageNode: 'image',
   uploadVideoNode: 'video',
+  uploadAudioNode: 'audio',
   cropImageNode: 'image',
   extractFrameNode: 'image',
   llmNode: 'text',
   textCombineNode: 'text',
   resizeImageNode: 'image',
+  imageGenNode: 'image',
+  imageEditNode: 'image',
+  ttsNode: 'audio',
+  transcribeNode: 'text',
 }
 
 type DropSuggestion = { nodeType: string; label: string; targetHandle?: string; sourceHandle?: string }
 
 const OUTPUT_TO_TARGETS: Record<string, DropSuggestion[]> = {
   image: [
-    { nodeType: 'llmNode', label: 'LLM', targetHandle: 'image_url' },
+    { nodeType: 'llmNode', label: 'LLM', targetHandle: 'images' },
     { nodeType: 'cropImageNode', label: 'Crop Image', targetHandle: 'image_url' },
     { nodeType: 'resizeImageNode', label: 'Resize Image', targetHandle: 'image_url' },
+    { nodeType: 'imageEditNode', label: 'Edit Image', targetHandle: 'image_url' },
     { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
   ],
   video: [
     { nodeType: 'extractFrameNode', label: 'Extract Frame', targetHandle: 'video_url' },
+    { nodeType: 'llmNode', label: 'LLM — Video', targetHandle: 'video' },
+    { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
+  ],
+  audio: [
+    { nodeType: 'transcribeNode', label: 'Transcribe', targetHandle: 'audio_url' },
+    { nodeType: 'llmNode', label: 'LLM — Audio', targetHandle: 'audio' },
     { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
   ],
   text: [
     { nodeType: 'llmNode', label: 'LLM — Prompt', targetHandle: 'user_message' },
     { nodeType: 'llmNode', label: 'LLM — System Prompt', targetHandle: 'system_prompt' },
+    { nodeType: 'imageGenNode', label: 'Generate Image — Prompt', targetHandle: 'prompt' },
+    { nodeType: 'imageEditNode', label: 'Edit Image — Prompt', targetHandle: 'prompt' },
+    { nodeType: 'ttsNode', label: 'Text to Speech', targetHandle: 'tts_text' },
     { nodeType: 'textCombineNode', label: 'Text Combine', targetHandle: 'text_1' },
     { nodeType: 'outputNode', label: 'Output', targetHandle: 'input' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame — Timestamp', targetHandle: 'timestamp' },
@@ -118,11 +153,19 @@ const TEXT_SOURCES: DropSuggestion[] = [
   { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
   { nodeType: 'llmNode', label: 'LLM', sourceHandle: 'output' },
   { nodeType: 'textCombineNode', label: 'Text Combine', sourceHandle: 'output' },
+  { nodeType: 'transcribeNode', label: 'Transcribe', sourceHandle: 'output' },
+]
+
+const AUDIO_SOURCES: DropSuggestion[] = [
+  { nodeType: 'uploadAudioNode', label: 'Upload Audio', sourceHandle: 'output' },
+  { nodeType: 'ttsNode', label: 'Text to Speech', sourceHandle: 'output' },
 ]
 
 const HANDLE_TO_SOURCES: Record<string, DropSuggestion[]> = {
   image_url: [
     { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
+    { nodeType: 'imageGenNode', label: 'Generate Image', sourceHandle: 'output' },
+    { nodeType: 'imageEditNode', label: 'Edit Image', sourceHandle: 'output' },
     { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
     { nodeType: 'resizeImageNode', label: 'Resize Image', sourceHandle: 'output' },
@@ -130,8 +173,23 @@ const HANDLE_TO_SOURCES: Record<string, DropSuggestion[]> = {
   video_url: [
     { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
   ],
+  images: [
+    { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
+    { nodeType: 'imageGenNode', label: 'Generate Image', sourceHandle: 'output' },
+    { nodeType: 'imageEditNode', label: 'Edit Image', sourceHandle: 'output' },
+    { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
+    { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
+    { nodeType: 'resizeImageNode', label: 'Resize Image', sourceHandle: 'output' },
+  ],
+  video: [
+    { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
+  ],
+  audio: AUDIO_SOURCES,
+  audio_url: AUDIO_SOURCES,
   system_prompt: TEXT_SOURCES,
   user_message: TEXT_SOURCES,
+  prompt: TEXT_SOURCES,
+  tts_text: TEXT_SOURCES,
   text_1: TEXT_SOURCES,
   text_2: TEXT_SOURCES,
   text_3: TEXT_SOURCES,
@@ -142,10 +200,15 @@ const HANDLE_TO_SOURCES: Record<string, DropSuggestion[]> = {
     { nodeType: 'textNode', label: 'Text', sourceHandle: 'output' },
     { nodeType: 'textCombineNode', label: 'Text Combine', sourceHandle: 'output' },
     { nodeType: 'uploadImageNode', label: 'Upload Image', sourceHandle: 'output' },
+    { nodeType: 'imageGenNode', label: 'Generate Image', sourceHandle: 'output' },
+    { nodeType: 'imageEditNode', label: 'Edit Image', sourceHandle: 'output' },
     { nodeType: 'cropImageNode', label: 'Crop Image', sourceHandle: 'output' },
     { nodeType: 'resizeImageNode', label: 'Resize Image', sourceHandle: 'output' },
     { nodeType: 'extractFrameNode', label: 'Extract Frame', sourceHandle: 'output' },
     { nodeType: 'uploadVideoNode', label: 'Upload Video', sourceHandle: 'output' },
+    { nodeType: 'uploadAudioNode', label: 'Upload Audio', sourceHandle: 'output' },
+    { nodeType: 'ttsNode', label: 'Text to Speech', sourceHandle: 'output' },
+    { nodeType: 'transcribeNode', label: 'Transcribe', sourceHandle: 'output' },
   ],
   timestamp: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
   x_percent: [{ nodeType: 'textNode', label: 'Text', sourceHandle: 'output' }],
@@ -485,8 +548,13 @@ export default function WorkflowCanvas() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey
-      if (ctrl && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
-      if (ctrl && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo() }
+      // While typing in a field, leave Ctrl+Z/Y to the browser's own
+      // text-level undo instead of rewinding the whole canvas.
+      const el = e.target as HTMLElement
+      const inField = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
+      const key = e.key.toLowerCase() // with Shift held, e.key is 'Z' not 'z'
+      if (ctrl && !inField && key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+      if (ctrl && !inField && ((key === 'z' && e.shiftKey) || key === 'y')) { e.preventDefault(); redo() }
       if (ctrl && e.key === 's') { e.preventDefault(); saveWorkflow() }
       if (ctrl && e.key === 'Enter') {
         e.preventDefault()
@@ -560,12 +628,15 @@ export default function WorkflowCanvas() {
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('Files') ? 'copy' : 'move'
+    // dropEffect must be compatible with the source's effectAllowed or the
+    // browser cancels the drop: palette drags use 'move', everything else
+    // (OS files, asset tiles, text/URLs) is a copy
+    e.dataTransfer.dropEffect = e.dataTransfer.types.includes('application/reactflow') ? 'move' : 'copy'
   }, [])
 
   // Upload a dropped file into an upload node (existing or newly created).
   // data.uploading drives the node's spinner since the upload runs out here.
-  const uploadFileIntoNode = useCallback(async (nodeId: string, kind: 'image' | 'video', file: File) => {
+  const uploadFileIntoNode = useCallback(async (nodeId: string, kind: 'image' | 'video' | 'audio', file: File) => {
     const { updateNodeData, recordAsset } = useWorkflowStore.getState()
     updateNodeData(nodeId, { uploading: true, error: undefined })
     try {
@@ -575,7 +646,9 @@ export default function WorkflowCanvas() {
       })
       updateNodeData(nodeId, kind === 'image'
         ? { imageUrl: blob.url, uploading: false }
-        : { videoUrl: blob.url, uploading: false })
+        : kind === 'video'
+          ? { videoUrl: blob.url, uploading: false }
+          : { audioUrl: blob.url, uploading: false })
       void recordAsset({ nodeId, type: kind, url: blob.url })
     } catch (err: unknown) {
       updateNodeData(nodeId, { uploading: false, error: err instanceof Error ? err.message : 'Upload failed' })
@@ -598,15 +671,37 @@ export default function WorkflowCanvas() {
     const targetId = (e.target as HTMLElement).closest('.react-flow__node')?.getAttribute('data-id') ?? null
     const targetNode = targetId ? liveNodes.find(n => n.id === targetId) : null
 
-    // Image/video files dropped from the OS or another window
+    // Asset drag from the assets panel or the dashboard gallery — the payload
+    // carries the exact media type, so no URL-extension sniffing is needed
+    const assetJson = e.dataTransfer.getData('application/nextflow-asset')
+    if (assetJson) {
+      try {
+        const { type, url } = JSON.parse(assetJson) as { type?: string; url?: string }
+        if (typeof url === 'string' && url && (type === 'image' || type === 'video' || type === 'audio')) {
+          const wantedType = type === 'image' ? 'uploadImageNode' : type === 'video' ? 'uploadVideoNode' : 'uploadAudioNode'
+          const dataKey = type === 'image' ? 'imageUrl' : type === 'video' ? 'videoUrl' : 'audioUrl'
+          if (targetNode?.type === wantedType) {
+            // Dropped on a matching upload node — replace its media
+            updateNodeData(targetNode.id, { [dataKey]: url })
+          } else {
+            addNode({ id: `${wantedType}-${Date.now()}`, type: wantedType, position, data: { ...getInitialData(wantedType), [dataKey]: url } } as Node)
+          }
+          return
+        }
+      } catch { /* malformed payload — fall through to the other branches */ }
+    }
+
+    // Image/video/audio files dropped from the OS or another window
     const files = Array.from(e.dataTransfer.files)
-      .filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .filter(f => f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/'))
     if (files.length > 0) {
       let usedTarget = false
       let created = 0
       for (const file of files) {
-        const kind = file.type.startsWith('image/') ? 'image' as const : 'video' as const
-        const wantedType = kind === 'image' ? 'uploadImageNode' : 'uploadVideoNode'
+        const kind = file.type.startsWith('image/') ? 'image' as const
+          : file.type.startsWith('video/') ? 'video' as const : 'audio' as const
+        const wantedType = kind === 'image' ? 'uploadImageNode'
+          : kind === 'video' ? 'uploadVideoNode' : 'uploadAudioNode'
         let nodeId: string
         if (!usedTarget && targetNode?.type === wantedType) {
           // Dropped on a matching upload node — replace its media
@@ -632,10 +727,11 @@ export default function WorkflowCanvas() {
     if (!text) return
     const isImageUrl = /^https?:\/\/\S+\.(png|jpe?g|webp|gif)(\?\S*)?$/i.test(text)
     const isVideoUrl = /^https?:\/\/\S+\.(mp4|webm|mov|m4v)(\?\S*)?$/i.test(text)
+    const isAudioUrl = /^https?:\/\/\S+\.(mp3|wav|ogg|m4a|flac|aac)(\?\S*)?$/i.test(text)
 
-    if (isImageUrl || isVideoUrl) {
-      const wantedType = isImageUrl ? 'uploadImageNode' : 'uploadVideoNode'
-      const dataKey = isImageUrl ? 'imageUrl' : 'videoUrl'
+    if (isImageUrl || isVideoUrl || isAudioUrl) {
+      const wantedType = isImageUrl ? 'uploadImageNode' : isVideoUrl ? 'uploadVideoNode' : 'uploadAudioNode'
+      const dataKey = isImageUrl ? 'imageUrl' : isVideoUrl ? 'videoUrl' : 'audioUrl'
       if (targetNode?.type === wantedType) {
         updateNodeData(targetNode.id, { [dataKey]: text })
       } else {

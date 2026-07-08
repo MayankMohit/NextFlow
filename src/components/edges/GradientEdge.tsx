@@ -6,11 +6,16 @@ const NODE_COLORS: Record<string, string> = {
   textNode: '#fec50b',
   uploadImageNode: '#067ef8',
   uploadVideoNode: '#067ef8',
+  uploadAudioNode: '#067ef8',
   llmNode: '#8f29ef',
   cropImageNode: '#16A68D',
   extractFrameNode: '#16A68D',
   textCombineNode: '#f97316',
   resizeImageNode: '#0ea5e9',
+  imageGenNode: '#22c55e',
+  imageEditNode: '#f43f5e',
+  ttsNode: '#06b6d4',
+  transcribeNode: '#d946ef',
   outputNode: '#ec4899',
 }
 

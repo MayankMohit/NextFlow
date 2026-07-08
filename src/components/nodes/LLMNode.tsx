@@ -8,14 +8,20 @@ import { useNodeHover } from "@/hooks/usenodehover";
 import { useNodeStatus } from "@/hooks/useNodeStatus";
 
 const NODE_COLOR = "#8f29ef";
-const MODELS = [
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash-preview",
-  "gemini-3.1-pro-preview",
+const GEMINI_MODELS = [
+  "gemini-3.1-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+];
+const WORKERS_MODELS = [
+  { id: "@cf/meta/llama-3.3-70b-instruct-fp8-fast", label: "llama-3.3-70b (fast)" },
+  { id: "@cf/meta/llama-3.1-8b-instruct-fp8-fast", label: "llama-3.1-8b (fast)" },
+  { id: "@cf/meta/llama-3.2-11b-vision-instruct", label: "llama-3.2-11b (vision)" },
 ];
 
 export default function LLMNode({ selected, data, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
+  const { updateNodeData, theme, runNode, saveWorkflow, fieldsVersion } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id);
@@ -80,6 +86,8 @@ export default function LLMNode({ selected, data, id }: NodeProps) {
       };
 
   const result = typeof data.result === "string" ? data.result : undefined;
+  // Saved nodes from before the provider field default to Gemini
+  const provider = data.provider === "workers" ? "workers" : "gemini";
 
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
@@ -198,18 +206,75 @@ export default function LLMNode({ selected, data, id }: NodeProps) {
             </span>
           </div>
 
-          {/* Model */}
+          {/* Video */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs w-20 shrink-0 ${isDark ? "text-[#666]" : "text-[#888]"}`}
+            >Video
+            </span>
+          </div>
+
+          {/* Audio */}
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs w-20 shrink-0 ${isDark ? "text-[#666]" : "text-[#888]"}`}
+            >Audio
+            </span>
+          </div>
+
+          {/* Provider */}
           <select
-            defaultValue={(data.model as string) ?? MODELS[0]}
-            onChange={(e) => updateNodeData(id, { model: e.target.value })}
-            className={`w-full text-xs rounded p-1.5 border outline-none ${inputBg}`}
+            // Uncontrolled — remount on undo/redo so it re-reads defaultValue
+            key={`provider-${fieldsVersion}`}
+            defaultValue={provider}
+            onChange={(e) => {
+              const next = e.target.value;
+              // Model lists don't overlap — reset to the provider's default
+              updateNodeData(id, {
+                provider: next,
+                model: next === "workers" ? WORKERS_MODELS[0].id : GEMINI_MODELS[0],
+              });
+            }}
+            className={`nodrag w-full text-xs rounded p-1.5 border outline-none ${inputBg}`}
           >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
+            <option value="gemini">Gemini</option>
+            <option value="workers">Workers AI (llama)</option>
           </select>
+
+          {/* Model — remount when the provider flips so defaultValue re-reads */}
+          <select
+            key={`model-${provider}-${fieldsVersion}`}
+            defaultValue={
+              provider === "workers"
+                ? WORKERS_MODELS.some((m) => m.id === data.model)
+                  ? (data.model as string)
+                  : WORKERS_MODELS[0].id
+                : GEMINI_MODELS.includes(data.model as string)
+                  ? (data.model as string)
+                  : GEMINI_MODELS[0]
+            }
+            onChange={(e) => updateNodeData(id, { model: e.target.value })}
+            className={`nodrag w-full text-xs rounded p-1.5 border outline-none ${inputBg}`}
+          >
+            {provider === "workers"
+              ? WORKERS_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))
+              : GEMINI_MODELS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+          </select>
+
+          {provider === "workers" && (
+            <p className={`text-xs ${isDark ? "text-[#444]" : "text-[#ccc]"}`}>
+              Text & images only — use Gemini for video/audio. Images
+              auto-switch to the vision model.
+            </p>
+          )}
 
           {/* Result */}
           <div className="relative group/result">
@@ -255,6 +320,18 @@ export default function LLMNode({ selected, data, id }: NodeProps) {
           position={Position.Left}
           id="images"
           style={{ top: 103, ...tHandle }}
+        />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="video"
+          style={{ top: 127, ...tHandle }}
+        />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="audio"
+          style={{ top: 151, ...tHandle }}
         />
         <Handle
           type="source"

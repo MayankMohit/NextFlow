@@ -5,6 +5,10 @@ import { executeExtractFrame } from './extractFrame'
 import { executeOutput } from './output'
 import { executeTextCombine } from './textCombine'
 import { executeResizeImage } from './resizeImage'
+import { executeGenerateImage } from './generateImage'
+import { executeEditImage } from './editImage'
+import { executeTTS } from './tts'
+import { executeTranscribe } from './transcribe'
 
 export type { ExecutorArgs, NodeExecutor } from './types'
 
@@ -16,4 +20,8 @@ export const executors: Record<string, NodeExecutor> = {
   outputNode: executeOutput,
   textCombineNode: executeTextCombine,
   resizeImageNode: executeResizeImage,
+  imageGenNode: executeGenerateImage,
+  imageEditNode: executeEditImage,
+  ttsNode: executeTTS,
+  transcribeNode: executeTranscribe,
 }

@@ -9,7 +9,7 @@ import { useNodeStatus } from "@/hooks/useNodeStatus";
 const NODE_COLOR = "#f97316";
 
 export default function TextCombineNode({ selected, data, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
+  const { updateNodeData, theme, runNode, saveWorkflow, fieldsVersion } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id);
@@ -166,6 +166,8 @@ export default function TextCombineNode({ selected, data, id }: NodeProps) {
 
           <span className={`text-xs mt-1 ${labelColor}`}>Template</span>
           <textarea
+            // Uncontrolled — remount on undo/redo to re-read defaultValue
+            key={fieldsVersion}
             defaultValue={(data.template as string) ?? ""}
             onChange={(e) => updateNodeData(id, { template: e.target.value })}
             placeholder={"{{1}} — {{2}}"}

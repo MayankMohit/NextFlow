@@ -23,14 +23,17 @@ export interface NodeRunMeta {
   duration?: number
 }
 
-const PASSTHROUGH_TYPES = ['textNode', 'uploadImageNode', 'uploadVideoNode']
+const PASSTHROUGH_TYPES = ['textNode', 'uploadImageNode', 'uploadVideoNode', 'uploadAudioNode']
 const SKIPPED_ERROR = 'Skipped — a previous node failed.'
 
 // Node types whose successful output is a media URL worth saving as an Asset
-const MEDIA_OUTPUT_TYPES: Record<string, 'image' | 'video'> = {
+const MEDIA_OUTPUT_TYPES: Record<string, 'image' | 'video' | 'audio'> = {
   cropImageNode: 'image',
   extractFrameNode: 'image',
   resizeImageNode: 'image',
+  imageGenNode: 'image',
+  imageEditNode: 'image',
+  ttsNode: 'audio',
 }
 
 export const orchestratorTask = task({
@@ -58,6 +61,8 @@ export const orchestratorTask = task({
         if (node.data.imageUrl != null) nodeOutputs.set(node.id, node.data.imageUrl)
       } else if (node.type === 'uploadVideoNode') {
         if (node.data.videoUrl != null) nodeOutputs.set(node.id, node.data.videoUrl)
+      } else if (node.type === 'uploadAudioNode') {
+        if (node.data.audioUrl != null) nodeOutputs.set(node.id, node.data.audioUrl)
       } else if (node.data.lastOutput != null) {
         nodeOutputs.set(node.id, node.data.lastOutput)
       }
@@ -110,7 +115,10 @@ export const orchestratorTask = task({
             nodesMeta[node.id] = { status: 'success', output: res.value, duration }
           } else {
             failedOrSkipped.add(node.id)
-            const reason = res.reason instanceof Error ? res.reason.message : String(res.reason)
+            const raw = res.reason instanceof Error ? res.reason.message : String(res.reason)
+            // Never surface a wall of raw API output on a node — keep errors short
+            const brief = raw.replace(/\s+/g, ' ').trim()
+            const reason = brief.length > 200 ? brief.slice(0, 200) + '…' : brief
             nodesMeta[node.id] = { status: 'failed', error: reason, duration }
           }
         })

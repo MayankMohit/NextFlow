@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 const createSchema = z.object({
   url: z.string().url(),
-  type: z.enum(["image", "video"]),
+  type: z.enum(["image", "video", "audio"]),
   workflowId: z.string().optional(),
   nodeId: z.string().optional(),
   meta: z.record(z.string(), z.unknown()).optional(),

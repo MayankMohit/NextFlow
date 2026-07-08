@@ -12,7 +12,7 @@ const NODE_COLOR = "#0ea5e9";
 const FIT_OPTIONS = ["cover", "contain", "fill", "inside", "outside"] as const;
 
 export default function ResizeImageNode({ selected, data, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
+  const { updateNodeData, theme, runNode, saveWorkflow, fieldsVersion } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id);
@@ -167,6 +167,8 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
           <div className="flex items-center gap-2">
             <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Width</span>
             <input
+              // Uncontrolled — remount on undo/redo to re-read defaultValue
+              key={fieldsVersion}
               type="number"
               min={1}
               defaultValue={(data.width as number) ?? 512}
@@ -176,7 +178,7 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
                 })
               }
               placeholder="512"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+              className={`nodrag flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
             />
           </div>
 
@@ -185,6 +187,7 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
               Height
             </span>
             <input
+              key={fieldsVersion}
               type="number"
               min={1}
               defaultValue={(data.height as number) ?? ""}
@@ -194,13 +197,14 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
                 })
               }
               placeholder="auto"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+              className={`nodrag flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
             />
           </div>
 
           <div className="flex items-center gap-2">
             <span className={`text-xs w-14 shrink-0 ${labelColor}`}>Fit</span>
             <select
+              key={fieldsVersion}
               defaultValue={(data.fit as string) ?? "cover"}
               onChange={(e) => updateNodeData(id, { fit: e.target.value })}
               className={`nodrag flex-1 text-xs rounded p-1.5 border outline-none ${inputCls}`}
@@ -218,6 +222,9 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
               Max size
             </span>
             <input
+              // Prefixed — this input and the unit select are siblings, so a
+              // bare fieldsVersion would give them duplicate keys
+              key={`size-${fieldsVersion}`}
               type="number"
               min={1}
               defaultValue={(data.maxSize as number) ?? ""}
@@ -227,9 +234,10 @@ export default function ResizeImageNode({ selected, data, id }: NodeProps) {
                 })
               }
               placeholder="off"
-              className={`flex-1 min-w-0 text-xs rounded p-1.5 border outline-none ${inputCls}`}
+              className={`nodrag flex-1 min-w-0 text-xs rounded p-1.5 border outline-none ${inputCls}`}
             />
             <select
+              key={`unit-${fieldsVersion}`}
               defaultValue={(data.maxSizeUnit as string) ?? "KB"}
               onChange={(e) =>
                 updateNodeData(id, { maxSizeUnit: e.target.value })

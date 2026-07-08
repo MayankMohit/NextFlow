@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Download, Link, Check, Loader2, X } from "lucide-react";
 
 const VIDEO_RE = /\.(mp4|webm|mov)(\?|$)/i;
+const AUDIO_RE = /\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i;
 
 interface OutputPreviewProps {
   url: string;
@@ -32,6 +33,7 @@ export default function OutputPreview({
 }: OutputPreviewProps) {
   const mediaStyle = height ? { height } : { maxHeight };
   const isVideo = VIDEO_RE.test(url);
+  const isAudio = AUDIO_RE.test(url);
   const [lightbox, setLightbox] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -55,7 +57,8 @@ export default function OutputPreview({
       if (!res.ok) throw new Error(`Download failed: ${res.status}`);
       const blob = await res.blob();
       const ext =
-        new URL(url).pathname.split(".").pop() || (isVideo ? "mp4" : "jpg");
+        new URL(url).pathname.split(".").pop() ||
+        (isVideo ? "mp4" : isAudio ? "mp3" : "jpg");
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
@@ -84,7 +87,13 @@ export default function OutputPreview({
 
   return (
     <div className="relative group/preview">
-      {isVideo ? (
+      {isAudio ? (
+        <audio
+          src={url}
+          controls
+          className={`nodrag w-full rounded border ${border}`}
+        />
+      ) : isVideo ? (
         <video
           src={url}
           controls

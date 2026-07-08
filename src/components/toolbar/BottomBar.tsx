@@ -99,9 +99,17 @@ const NODE_TYPES = [
   { type: 'textNode', label: 'Text' },
   { type: 'uploadImageNode', label: 'Upload Image' },
   { type: 'uploadVideoNode', label: 'Upload Video' },
+  { type: 'uploadAudioNode', label: 'Upload Audio' },
   { type: 'llmNode', label: 'LLM' },
   { type: 'cropImageNode', label: 'Crop Image' },
   { type: 'extractFrameNode', label: 'Extract Frame' },
+  { type: 'textCombineNode', label: 'Text Combine' },
+  { type: 'resizeImageNode', label: 'Resize Image' },
+  { type: 'imageGenNode', label: 'Generate Image' },
+  { type: 'imageEditNode', label: 'Edit Image' },
+  { type: 'ttsNode', label: 'Text to Speech' },
+  { type: 'transcribeNode', label: 'Transcribe' },
+  { type: 'outputNode', label: 'Output' },
 ]
 
 const getInitialData = (type: string) => {
@@ -109,9 +117,17 @@ const getInitialData = (type: string) => {
     case 'textNode': return { label: 'Text', text: '', status: 'idle' }
     case 'uploadImageNode': return { label: 'Upload Image', imageUrl: null, status: 'idle' }
     case 'uploadVideoNode': return { label: 'Upload Video', videoUrl: null, status: 'idle' }
-    case 'llmNode': return { label: 'LLM', model: 'gemini-3.1-flash-lite-preview', result: null, status: 'idle' }
+    case 'uploadAudioNode': return { label: 'Upload Audio', audioUrl: null, status: 'idle' }
+    case 'llmNode': return { label: 'LLM', provider: 'gemini', model: 'gemini-3.1-flash-lite', result: null, status: 'idle' }
     case 'cropImageNode': return { label: 'Crop Image', xPercent: 0, yPercent: 0, widthPercent: 100, heightPercent: 100, status: 'idle' }
     case 'extractFrameNode': return { label: 'Extract Frame', timestamp: '0', status: 'idle' }
+    case 'textCombineNode': return { label: 'Text Combine', template: '', status: 'idle' }
+    case 'resizeImageNode': return { label: 'Resize Image', width: 512, fit: 'cover', status: 'idle' }
+    case 'imageGenNode': return { label: 'Generate Image', prompt: '', model: 'flux-1-schnell', steps: 4, status: 'idle' }
+    case 'imageEditNode': return { label: 'Edit Image', prompt: '', model: 'flux-2-klein-4b', status: 'idle' }
+    case 'ttsNode': return { label: 'Text to Speech', text: '', model: 'melotts', lang: 'en', speaker: 'luna', status: 'idle' }
+    case 'transcribeNode': return { label: 'Transcribe', language: '', status: 'idle' }
+    case 'outputNode': return { label: 'Output', lastOutput: null, status: 'idle' }
     default: return { label: type, status: 'idle' }
   }
 }

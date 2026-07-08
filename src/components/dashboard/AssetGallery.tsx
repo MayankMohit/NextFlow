@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Loader2,
   Film,
+  Music,
   Maximize2,
   Link2,
   Check,
@@ -16,7 +17,7 @@ import {
 
 export type DashboardAsset = {
   id: string;
-  type: string; // image | video
+  type: string; // image | video | audio
   url: string;
   workflowId: string | null;
   createdAt: string;
@@ -111,19 +112,39 @@ function AssetCard({
   const [loaded, setLoaded] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
+  // Audio has no visual media to load — the tile is a static icon
+  const isAudio = asset.type === "audio";
+
   if (failed) return null;
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/nextflow-asset", JSON.stringify({ type: asset.type, url: asset.url }));
+        e.dataTransfer.setData("text/plain", asset.url);
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      title="Drag onto a workflow canvas to use"
       className={`group relative aspect-square rounded-xl overflow-hidden border border-[#2a2a2a] bg-[#141414] ${
-        loaded ? "" : "animate-pulse"
+        loaded || isAudio ? "" : "animate-pulse"
       }`}
     >
       {/* Media fills the square uniformly */}
       <button onClick={onOpen} className="block w-full h-full cursor-zoom-in" title="Open asset">
-        {asset.type === "video" ? (
+        {isAudio ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <Music size={28} className="text-[#555]" />
+          </div>
+        ) : asset.type === "video" ? (
           <video
-            ref={(el) => { if (el && el.readyState >= 1) setLoaded(true); }}
+            // The gallery is server-rendered, so media can finish (or fail)
+            // before hydration attaches onLoad/onError — the ref catches both.
+            ref={(el) => {
+              if (!el) return;
+              if (el.error) setFailed(true);
+              else if (el.readyState >= 1) setLoaded(true);
+            }}
             src={asset.url}
             muted
             playsInline
@@ -138,10 +159,17 @@ function AssetCard({
           /* Blob URLs are remote and unconfigured for next/image — plain img keeps it simple */
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            ref={(el) => { if (el?.complete && el.naturalWidth > 0) setLoaded(true); }}
+            // complete + naturalWidth 0 = the image already 404'd before
+            // hydration, so onError will never fire — hide the tile here.
+            ref={(el) => {
+              if (!el?.complete) return;
+              if (el.naturalWidth > 0) setLoaded(true);
+              else setFailed(true);
+            }}
             src={asset.url}
             alt=""
             loading="lazy"
+            draggable={false}
             className="w-full h-full object-cover"
             onLoad={() => setLoaded(true)}
             onError={() => setFailed(true)}
@@ -237,7 +265,12 @@ function Lightbox({
         <X size={16} />
       </button>
 
-      {asset.type === "video" ? (
+      {asset.type === "audio" ? (
+        <div className="flex flex-col items-center gap-4 p-8 rounded-xl border border-[#2a2a2a] bg-[#141414]">
+          <Music size={40} className="text-[#555]" />
+          <audio src={asset.url} controls autoPlay className="w-[min(480px,80vw)]" />
+        </div>
+      ) : asset.type === "video" ? (
         <video
           src={asset.url}
           controls

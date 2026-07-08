@@ -10,7 +10,7 @@ import { useRef, useState, useCallback } from 'react'
 const NODE_COLOR = '#fec50b'
 
 export default function TextNode({ data, selected, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore()
+  const { updateNodeData, theme, runNode, saveWorkflow, fieldsVersion } = useWorkflowStore()
   const isDark = theme === 'dark'
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover()
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id)
@@ -174,12 +174,13 @@ export default function TextNode({ data, selected, id }: NodeProps) {
           <div className="relative">
             <textarea
               // textSetAt changes when text is dropped onto the node from
-              // outside — remounting re-reads defaultValue (uncontrolled)
-              key={typeof data.textSetAt === 'number' ? data.textSetAt : 'ta'}
+              // outside, fieldsVersion on undo/redo/import — remounting
+              // re-reads defaultValue (uncontrolled)
+              key={`${fieldsVersion}-${typeof data.textSetAt === 'number' ? data.textSetAt : 'ta'}`}
               ref={textareaRef}
               placeholder="Enter text..."
               defaultValue={(data.text as string) ?? ''}
-              className={`textnode-textarea nowheel w-full text-xs rounded p-2 outline-none resize-none border focus:border-[#fec50b] transition-colors overflow-y-auto ${inputBg}`}
+              className={`textnode-textarea nodrag nowheel w-full text-xs rounded p-2 outline-none resize-none border focus:border-[#fec50b] transition-colors overflow-y-auto ${inputBg}`}
               style={{ height: taHeight, lineHeight: '1.5' }}
               onChange={e => updateNodeData(id, { text: e.target.value })}
             />

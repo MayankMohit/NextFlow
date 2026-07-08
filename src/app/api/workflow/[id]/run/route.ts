@@ -6,7 +6,7 @@ import type { orchestratorTask } from "@/trigger/orchestratorTask";
 import type { Node, Edge } from "@xyflow/react";
 import { z } from "zod";
 
-const PASSTHROUGH_TYPES = new Set(["textNode", "uploadImageNode", "uploadVideoNode"]);
+const PASSTHROUGH_TYPES = new Set(["textNode", "uploadImageNode", "uploadVideoNode", "uploadAudioNode"]);
 
 const runSchema = z.object({
   nodes: z.array(z.any()),
@@ -78,6 +78,7 @@ export async function POST(
         if (n.type === "textNode") out = (data.text as string) || null;
         else if (n.type === "uploadImageNode") out = (data.imageUrl as string) || null;
         else if (n.type === "uploadVideoNode") out = (data.videoUrl as string) || null;
+        else if (n.type === "uploadAudioNode") out = (data.audioUrl as string) || null;
         return {
           workflowRunId: run.id,
           nodeId: n.id,

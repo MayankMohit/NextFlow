@@ -10,7 +10,7 @@ import OutputPreview from "./shared/OutputPreview";
 const NODE_COLOR = "#16A68D";
 
 export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
-  const { updateNodeData, theme, runNode, saveWorkflow } = useWorkflowStore();
+  const { updateNodeData, theme, runNode, saveWorkflow, fieldsVersion } = useWorkflowStore();
   const isDark = theme === "dark";
   const { hovered, onMouseEnter, onMouseLeave } = useNodeHover();
   const { isNodeRunning, isStartNode, canRun } = useNodeStatus(id);
@@ -169,6 +169,8 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
             </span>
 
             <input
+              // Uncontrolled — remount on undo/redo to re-read defaultValue
+              key={fieldsVersion}
               type="text"
               disabled={isConnected("timestamp")}
               defaultValue={(data.timestamp as string) ?? "0"}
@@ -176,7 +178,7 @@ export default function ExtractFrameNode({ selected, data, id }: NodeProps) {
                 updateNodeData(id, { timestamp: e.target.value })
               }
               placeholder="0 or 50%"
-              className={`flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
+              className={`nodrag flex-1 text-xs rounded p-1.5 border outline-none disabled:opacity-40 disabled:cursor-not-allowed ${inputCls}`}
             />
           </div>
           <p className={`text-xs ${hintColor}`}>

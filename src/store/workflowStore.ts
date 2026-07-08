@@ -39,7 +39,7 @@ export interface NodeRun {
 export interface Asset {
   id: string
   nodeId: string
-  type: 'image' | 'video'
+  type: 'image' | 'video' | 'audio'
   url: string
   createdAt: string
   meta?: {
@@ -56,22 +56,64 @@ interface HistorySnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Undo/redo history
+// ---------------------------------------------------------------------------
+
+// Data keys that only mirror run/transient state. Writing them never creates
+// an undo step, and undo/redo keeps the LIVE values for nodes that still
+// exist — so run results, statuses and errors survive structural undos
+// instead of being rewound to what they were when the snapshot was taken.
+const EPHEMERAL_DATA_KEYS = ['status', 'error', 'result', 'lastOutput', 'uploading', 'connectedInputs', 'textSetAt'] as const
+const EPHEMERAL_SET = new Set<string>(EPHEMERAL_DATA_KEYS)
+
+// Rapid updates to the same node fields (typing, slider drags) collapse into
+// one undo step while they stay within this window of each other.
+const HISTORY_COALESCE_MS = 1200
+let coalesceRef: { key: string; at: number } | null = null
+
+// One user gesture can hit the store several times in the same tick (deleting
+// a node also removes its edges; connect-on-drop adds a node then an edge;
+// multi-file drop adds several nodes). Only the first push snapshots.
+let pushedThisTick = false
+
+// Set at the first position change of a drag gesture, cleared when it ends
+let dragInProgress = false
+let dragPushed = false
+
+const resetHistoryRefs = () => {
+  coalesceRef = null
+  dragInProgress = false
+  dragPushed = false
+}
+
+const cloneSnapshot = (nodes: Node[], edges: Edge[]): HistorySnapshot => ({
+  nodes: JSON.parse(JSON.stringify(nodes)),
+  edges: JSON.parse(JSON.stringify(edges)),
+})
+
+// ---------------------------------------------------------------------------
 // Connection validation
 // ---------------------------------------------------------------------------
 
 const IMAGE_HANDLES = new Set(['image_url', 'images'])
-const VIDEO_HANDLES = new Set(['video_url'])
-const TEXT_HANDLES = new Set(['system_prompt', 'user_message', 'timestamp', 'x_percent', 'y_percent', 'width_percent', 'height_percent', 'text_1', 'text_2', 'text_3', 'text_4'])
+const VIDEO_HANDLES = new Set(['video_url', 'video'])
+const AUDIO_HANDLES = new Set(['audio', 'audio_url'])
+const TEXT_HANDLES = new Set(['system_prompt', 'user_message', 'prompt', 'tts_text', 'timestamp', 'x_percent', 'y_percent', 'width_percent', 'height_percent', 'text_1', 'text_2', 'text_3', 'text_4'])
 
 const SOURCE_OUTPUT_TYPE: Record<string, string> = {
   textNode: 'text',
   uploadImageNode: 'image',
   uploadVideoNode: 'video',
+  uploadAudioNode: 'audio',
   cropImageNode: 'image',
   extractFrameNode: 'image',
   llmNode: 'text',
   textCombineNode: 'text',
   resizeImageNode: 'image',
+  imageGenNode: 'image',
+  imageEditNode: 'image',
+  ttsNode: 'audio',
+  transcribeNode: 'text',
   // outputNode is terminal — it has no source handle
 }
 
@@ -80,9 +122,10 @@ export function checkIsValidConnection(connection: Connection, nodes: Node[], ed
   if (!sourceNode) return false
   const outputType = SOURCE_OUTPUT_TYPE[sourceNode.type ?? '']
   const targetHandle = connection.targetHandle ?? ''
-  if (outputType === 'image' && (TEXT_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle))) return false
-  if (outputType === 'video' && (IMAGE_HANDLES.has(targetHandle) || TEXT_HANDLES.has(targetHandle))) return false
-  if (outputType === 'text' && (IMAGE_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle))) return false
+  if (outputType === 'image' && (TEXT_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle) || AUDIO_HANDLES.has(targetHandle))) return false
+  if (outputType === 'video' && (IMAGE_HANDLES.has(targetHandle) || TEXT_HANDLES.has(targetHandle) || AUDIO_HANDLES.has(targetHandle))) return false
+  if (outputType === 'text' && (IMAGE_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle) || AUDIO_HANDLES.has(targetHandle))) return false
+  if (outputType === 'audio' && (IMAGE_HANDLES.has(targetHandle) || VIDEO_HANDLES.has(targetHandle) || TEXT_HANDLES.has(targetHandle))) return false
   // Block if target handle is already occupied — except 'images' which accepts multiple sources
   if (connection.targetHandle !== 'images' &&
       edges.some(e => e.target === connection.target && e.targetHandle === connection.targetHandle)) return false
@@ -183,13 +226,14 @@ function maybeAddAsset(
   addAsset: (a: Asset) => void,
 ) {
   if (typeof output !== 'string' || !output.startsWith('http')) return
-  const isImage = ['uploadImageNode', 'cropImageNode', 'extractFrameNode', 'resizeImageNode'].includes(nodeType ?? '')
+  const isImage = ['uploadImageNode', 'cropImageNode', 'extractFrameNode', 'resizeImageNode', 'imageGenNode', 'imageEditNode'].includes(nodeType ?? '')
   const isVideo = nodeType === 'uploadVideoNode'
-  if (!isImage && !isVideo) return
+  const isAudio = ['uploadAudioNode', 'ttsNode'].includes(nodeType ?? '')
+  if (!isImage && !isVideo && !isAudio) return
   addAsset({
     id: `${nodeId}-${Date.now()}`,
     nodeId,
-    type: isVideo ? 'video' : 'image',
+    type: isVideo ? 'video' : isAudio ? 'audio' : 'image',
     url: output,
     createdAt: new Date().toISOString(),
     meta: { model: nodeData.model as string | undefined },
@@ -201,14 +245,15 @@ function maybeAddAsset(
 // their data is used directly.
 // ---------------------------------------------------------------------------
 
-const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
+const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode', 'uploadAudioNode'])
 
 // A passthrough source only satisfies downstream dependencies while its data
-// still exists — deleting an uploaded asset clears imageUrl/videoUrl.
+// still exists — deleting an uploaded asset clears imageUrl/videoUrl/audioUrl.
 const passthroughReady = (node: Node): boolean => {
   if (node.type === 'textNode') return true
   if (node.type === 'uploadImageNode') return !!node.data.imageUrl
   if (node.type === 'uploadVideoNode') return !!node.data.videoUrl
+  if (node.type === 'uploadAudioNode') return !!node.data.audioUrl
   return false
 }
 
@@ -266,7 +311,12 @@ interface WorkflowStore {
   future: HistorySnapshot[]
   undo: () => void
   redo: () => void
-  pushHistory: () => void
+  /** Snapshots current nodes/edges as an undo step. Pushes with the same
+      coalesceKey in quick succession merge into the first one. */
+  pushHistory: (coalesceKey?: string) => void
+  /** Bumped whenever state is swapped wholesale (undo/redo/import/load) so
+      uncontrolled node inputs remount and re-read their defaultValue. */
+  fieldsVersion: number
   workflowId: string
   workflowName: string
   setWorkflowName: (name: string) => void
@@ -328,7 +378,7 @@ interface WorkflowStore {
   /** Hydrates the assets panel from the Asset table (merges with local). */
   fetchAssets: () => Promise<void>
   /** Adds an asset locally AND persists it via POST /api/assets. */
-  recordAsset: (a: { nodeId: string; type: 'image' | 'video'; url: string; meta?: Asset['meta'] }) => Promise<void>
+  recordAsset: (a: { nodeId: string; type: 'image' | 'video' | 'audio'; url: string; meta?: Asset['meta'] }) => Promise<void>
   /** Removes an asset from the panel, the DB row, and Blob storage. */
   deleteAsset: (id: string) => Promise<void>
   projects: { id: string; name: string; updatedAt: string }[]
@@ -360,6 +410,25 @@ const syncConnectedInputs = (nodes: Node[], edges: Edge[]): Node[] =>
     return { ...node, data: { ...node.data, connectedInputs: connected } }
   })
 
+// Materialize a history snapshot: structure and user-edited params come from
+// the snapshot; run state (status/outputs/errors) stays live for nodes that
+// still exist. Nodes resurrected by the restore keep their snapshotted run
+// state, except a stale 'running' which can never be valid here.
+function restoreSnapshot(snapshot: HistorySnapshot, currentNodes: Node[]): { nodes: Node[]; edges: Edge[] } {
+  const liveById = new Map(currentNodes.map(n => [n.id, n]))
+  const nodes = snapshot.nodes.map(n => {
+    const live = liveById.get(n.id)
+    const data = { ...n.data } as Record<string, unknown>
+    if (live) {
+      for (const k of EPHEMERAL_DATA_KEYS) data[k] = (live.data as Record<string, unknown>)[k]
+    } else if (data.status === 'running') {
+      data.status = 'idle'
+    }
+    return { ...n, data }
+  })
+  return { nodes: syncConnectedInputs(nodes, snapshot.edges), edges: snapshot.edges }
+}
+
 // ---------------------------------------------------------------------------
 // Auto-save — debounced so bursts of changes (dragging, typing) collapse into
 // a single PUT once the canvas has been idle for a moment.
@@ -373,11 +442,43 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   edges: [],
 
   onNodesChange: (changes) => {
+    // Deletions (Delete/Backspace) and drags are user actions — snapshot
+    // before applying. A drag pushes once at its first movement so the whole
+    // gesture (including multi-select drags) is a single undo step.
+    const isDragging = changes.some(c => c.type === 'position' && c.dragging)
+    const dragEnded = changes.some(c => c.type === 'position' && !c.dragging)
+    if (changes.some(c => c.type === 'remove')) {
+      get().pushHistory()
+    } else if (isDragging && !dragInProgress) {
+      dragInProgress = true
+      const before = get().past.length
+      get().pushHistory()
+      dragPushed = get().past.length > before
+    }
     set({ nodes: applyNodeChanges(changes, get().nodes) })
+    if (dragEnded) {
+      // Drag ended where it started — drop the no-op undo step
+      if (dragPushed) {
+        const { past, nodes } = get()
+        const snap = past[past.length - 1]
+        if (snap && snap.nodes.length === nodes.length) {
+          const pos = new Map(snap.nodes.map(n => [n.id, n.position]))
+          const unmoved = nodes.every(n => {
+            const p = pos.get(n.id)
+            return p !== undefined && p.x === n.position.x && p.y === n.position.y
+          })
+          if (unmoved) set({ past: past.slice(0, -1) })
+        }
+      }
+      dragInProgress = false
+      dragPushed = false
+    }
     // Selection and dimension changes are view-only — no need to persist them
     if (changes.some(c => c.type !== 'select' && c.type !== 'dimensions')) get().scheduleAutoSave()
   },
   onEdgesChange: (changes) => {
+    // Edge deletions (Delete key, cut tool) are undoable
+    if (changes.some(c => c.type === 'remove')) get().pushHistory()
     const edges = applyEdgeChanges(changes, get().edges)
     set({
       edges,
@@ -406,6 +507,13 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   addNode: (node) => { get().pushHistory(); set({ nodes: [...get().nodes, node] }); get().scheduleAutoSave() },
 
   updateNodeData: (nodeId, data) => {
+    const node = get().nodes.find(n => n.id === nodeId)
+    if (!node) return
+    // User edits (typing, dropdowns, sliders, uploads) are undoable; run and
+    // status writes are not. Bursts on the same fields coalesce into one step.
+    const edited = Object.keys(data)
+      .filter(k => !EPHEMERAL_SET.has(k) && !Object.is(node.data[k], data[k]))
+    if (edited.length > 0) get().pushHistory(`data:${nodeId}:${edited.sort().join(',')}`)
     set({ nodes: get().nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n) })
     get().scheduleAutoSave()
   },
@@ -418,42 +526,57 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     get().scheduleAutoSave()
   },
 
-  past: [], future: [],
+  past: [], future: [], fieldsVersion: 0,
 
-  pushHistory: () => {
+  pushHistory: (coalesceKey) => {
+    if (pushedThisTick) return
+    const now = Date.now()
+    if (coalesceKey && coalesceRef && coalesceRef.key === coalesceKey && now - coalesceRef.at < HISTORY_COALESCE_MS) {
+      coalesceRef.at = now
+      return
+    }
+    coalesceRef = coalesceKey ? { key: coalesceKey, at: now } : null
+    pushedThisTick = true
+    setTimeout(() => { pushedThisTick = false }, 0)
     const { nodes, edges, past } = get()
     set({
-      past: [...past.slice(-MAX_HISTORY), {
-        nodes: JSON.parse(JSON.stringify(nodes)),
-        edges: JSON.parse(JSON.stringify(edges)),
-      }],
+      past: [...past.slice(-(MAX_HISTORY - 1)), cloneSnapshot(nodes, edges)],
       future: [],
     })
   },
 
   undo: () => {
-    const { past, nodes, edges, future } = get()
-    if (!past.length) return
+    const { past, nodes, edges, future, activeRun, isRunning } = get()
+    // Rewinding mid-run would fight the live progress stream
+    if (!past.length || activeRun || isRunning) return
     const snapshot = past[past.length - 1]
-    set({
+    const restored = restoreSnapshot(snapshot, nodes)
+    resetHistoryRefs()
+    set(s => ({
       past: past.slice(0, -1),
-      future: [...future, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
-      nodes: snapshot.nodes,
-      edges: snapshot.edges,
-    })
+      future: [...future, cloneSnapshot(nodes, edges)],
+      nodes: restored.nodes,
+      edges: restored.edges,
+      completedNodeIds: new Set(restored.nodes.filter(n => n.data.status === 'success').map(n => n.id)),
+      fieldsVersion: s.fieldsVersion + 1,
+    }))
     get().scheduleAutoSave()
   },
 
   redo: () => {
-    const { future, nodes, edges, past } = get()
-    if (!future.length) return
+    const { future, nodes, edges, past, activeRun, isRunning } = get()
+    if (!future.length || activeRun || isRunning) return
     const snapshot = future[future.length - 1]
-    set({
+    const restored = restoreSnapshot(snapshot, nodes)
+    resetHistoryRefs()
+    set(s => ({
       future: future.slice(0, -1),
-      past: [...past, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
-      nodes: snapshot.nodes,
-      edges: snapshot.edges,
-    })
+      past: [...past, cloneSnapshot(nodes, edges)],
+      nodes: restored.nodes,
+      edges: restored.edges,
+      completedNodeIds: new Set(restored.nodes.filter(n => n.data.status === 'success').map(n => n.id)),
+      fieldsVersion: s.fieldsVersion + 1,
+    }))
     get().scheduleAutoSave()
   },
 
@@ -469,15 +592,17 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       if (!res.ok) return
       const data = await res.json()
       // A save may have been interrupted mid-run — 'running' is never a valid
-      // status after a fresh load, and completed nodes must count as completed
-      // so downstream partial runs are allowed again.
+      // status after a fresh load, and stale errors/failures from a previous
+      // session shouldn't survive a refresh as amber banners. Completed nodes
+      // must still count as completed so downstream partial runs are allowed.
       const edges: Edge[] = (data.edges ?? []).map((e: Edge) => ({ ...e, type: 'default', animated: false, style: undefined }))
       const nodes: Node[] = syncConnectedInputs(
-        (data.nodes ?? []).map((n: Node) =>
-          (n.data as Record<string, unknown>)?.status === 'running'
-            ? { ...n, data: { ...n.data, status: 'idle' } }
-            : n,
-        ),
+        (data.nodes ?? []).map((n: Node) => {
+          const d = (n.data ?? {}) as Record<string, unknown>
+          const staleStatus = d.status === 'running' || d.status === 'failed' || d.status === 'error'
+          if (!staleStatus && d.error == null) return n
+          return { ...n, data: { ...d, error: undefined, ...(staleStatus ? { status: 'idle' } : {}) } }
+        }),
         edges,
       )
       const completedNodeIds = new Set(
@@ -485,12 +610,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           .filter(n => (n.data as Record<string, unknown>)?.status === 'success')
           .map(n => n.id),
       )
-      set({
+      resetHistoryRefs()
+      set(s => ({
         workflowId: data.id,
         workflowName: data.name ?? 'Untitled',
         nodes,
         edges,
         past: [], future: [],
+        fieldsVersion: s.fieldsVersion + 1,
         runningNodeIds: new Set(),
         completedNodeIds,
         saveState: 'idle',
@@ -499,7 +626,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
         assets: [],
         assetsLoaded: false,
         runs: [],
-      })
+      }))
       if (id !== 'new') {
         get().fetchRuns()
         get().fetchAssets()
@@ -872,7 +999,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       const rows: Array<{
         id: string
         nodeId: string | null
-        type: 'image' | 'video'
+        type: 'image' | 'video' | 'audio'
         url: string
         createdAt: string
         meta?: Asset['meta'] | null
@@ -961,6 +1088,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     // Deleted the workflow that's currently open — reset to a fresh canvas
     if (get().workflowId === id) {
       if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null }
+      resetHistoryRefs()
       set({
         workflowId: 'new',
         workflowName: 'Untitled',
@@ -999,37 +1127,45 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     try {
       const data = JSON.parse(json)
       const nodes: Node[] = data.nodes ?? []
-      get().pushHistory()
-      set({
+      // Importing opens a different (unsaved) document — undoing across that
+      // boundary would autosave the old canvas into the new workflow id, so
+      // history starts fresh instead.
+      resetHistoryRefs()
+      set(s => ({
         workflowName: data.name ?? 'Imported',
         nodes,
         edges: data.edges ?? [],
         workflowId: 'new',
+        past: [], future: [],
+        fieldsVersion: s.fieldsVersion + 1,
         runningNodeIds: new Set(),
         completedNodeIds: new Set(),
         // Different (unsaved) workflow — drop the previous one's panel state
         runs: [],
         assets: [],
         assetsLoaded: false,
-      })
+      }))
       get().scheduleAutoSave()
     } catch { /**/ }
   },
 
   loadSampleWorkflow: () => {
     const nodes: Node[] = JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.nodes))
-    get().pushHistory()
-    set({
+    // New unsaved document — same reasoning as importWorkflow
+    resetHistoryRefs()
+    set(s => ({
       workflowName: SAMPLE_WORKFLOW.name,
       nodes,
       edges: JSON.parse(JSON.stringify(SAMPLE_WORKFLOW.edges)),
       workflowId: 'new',
+      past: [], future: [],
+      fieldsVersion: s.fieldsVersion + 1,
       runningNodeIds: new Set(),
       completedNodeIds: new Set(),
       runs: [],
       assets: [],
       assetsLoaded: false,
-    })
+    }))
     get().scheduleAutoSave()
   },
 }))

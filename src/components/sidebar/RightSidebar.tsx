@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useWorkflowStore, type WorkflowRun, type Asset } from "@/store/workflowStore";
-import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, ImageOff, Check, Copy, Download, Loader2, X, Trash2, History } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ImageIcon, VideoIcon, Music, ImageOff, Check, Copy, Download, Loader2, X, Trash2, History } from "lucide-react";
 
 function useTheme() {
   const { theme } = useWorkflowStore()
@@ -25,15 +25,21 @@ const NODE_LABELS: Record<string, string> = {
   textNode: 'Text Node',
   uploadImageNode: 'Upload Image',
   uploadVideoNode: 'Upload Video',
+  uploadAudioNode: 'Upload Audio',
   llmNode: 'LLM Node',
   cropImageNode: 'Crop Image',
   extractFrameNode: 'Extract Frame',
   textCombineNode: 'Text Combine',
   resizeImageNode: 'Resize Image',
+  imageGenNode: 'Generate Image',
+  imageEditNode: 'Edit Image',
+  ttsNode: 'Text to Speech',
+  transcribeNode: 'Transcribe',
 }
 
 const IMAGE_URL_RE = /\.(jpe?g|png|webp|gif|avif)(\?|$)/i
 const VIDEO_URL_RE = /\.(mp4|webm|mov)(\?|$)/i
+const AUDIO_URL_RE = /\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i
 
 const SCOPE_LABEL: Record<string, string> = {
   full: 'Full Workflow',
@@ -89,7 +95,8 @@ function NodeRunEntry({ nr, isLast }: { nr: WorkflowRun['nodeRuns'][number]; isL
   const isUrl = outputVal != null && outputVal.startsWith('http')
   const isImage = isUrl && IMAGE_URL_RE.test(outputVal)
   const isVideo = isUrl && VIDEO_URL_RE.test(outputVal)
-  const isMedia = isImage || isVideo
+  const isAudio = isUrl && AUDIO_URL_RE.test(outputVal)
+  const isMedia = isImage || isVideo || isAudio
   const hasDetail = outputVal != null || !!nr.error
 
   // A run output we manage (outputs/uploads on our Blob store) always has an
@@ -116,7 +123,7 @@ function NodeRunEntry({ nr, isLast }: { nr: WorkflowRun['nodeRuns'][number]; isL
       const res = await fetch(outputVal)
       if (!res.ok) throw new Error(`Download failed: ${res.status}`)
       const blob = await res.blob()
-      const ext = new URL(outputVal).pathname.split('.').pop() || (isVideo ? 'mp4' : 'jpg')
+      const ext = new URL(outputVal).pathname.split('.').pop() || (isVideo ? 'mp4' : isAudio ? 'mp3' : 'jpg')
       const objectUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = objectUrl
@@ -173,6 +180,13 @@ function NodeRunEntry({ nr, isLast }: { nr: WorkflowRun['nodeRuns'][number]; isL
               <ImageOff size={16} className={t.textDim} />
               <span className="text-[10px] font-sans">Asset deleted</span>
             </div>
+          ) : isAudio ? (
+            <audio
+              src={outputVal!}
+              controls
+              onError={() => setLoadFailed(true)}
+              className="w-full"
+            />
           ) : isVideo ? (
             <video
               src={outputVal!}
@@ -414,6 +428,8 @@ function AssetModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
         </div>
         {asset.type === "image"
           ? <img src={asset.url} alt="asset" className={`w-full rounded-lg border max-h-64 object-contain ${t.divider}`} />
+          : asset.type === "audio"
+          ? <audio src={asset.url} controls className="w-full" />
           : <video src={asset.url} controls className={`w-full rounded-lg border max-h-64 ${t.divider}`} />
         }
         <div className={`grid grid-cols-2 gap-2 text-xs ${t.textMid}`}>
@@ -465,9 +481,18 @@ function AssetsPanel() {
           <div className="grid grid-cols-2 gap-2">
             {assets.map(asset => (
               <button key={asset.id} onClick={() => setSelectedAsset(asset)}
-                className={`relative aspect-square rounded-lg border overflow-hidden hover:border-violet-500 transition-colors group ${t.isDark ? 'bg-[#1a1a1a] border-[#2a2a2a]' : 'bg-[#f5f5f5] border-[#e0e0e0]'}`}>
+                draggable
+                onDragStart={e => {
+                  e.dataTransfer.setData("application/nextflow-asset", JSON.stringify({ type: asset.type, url: asset.url }))
+                  e.dataTransfer.setData("text/plain", asset.url)
+                  e.dataTransfer.effectAllowed = "copy"
+                }}
+                title="Click to view — drag onto the canvas to use"
+                className={`relative aspect-square rounded-lg border overflow-hidden hover:border-violet-500 transition-colors group cursor-grab active:cursor-grabbing ${t.isDark ? 'bg-[#1a1a1a] border-[#2a2a2a]' : 'bg-[#f5f5f5] border-[#e0e0e0]'}`}>
                 {asset.type === "image"
-                  ? <img src={asset.url} alt="asset" className="w-full h-full object-cover" />
+                  ? <img src={asset.url} alt="asset" draggable={false} className="w-full h-full object-cover" />
+                  : asset.type === "audio"
+                  ? <div className="w-full h-full flex items-center justify-center"><Music size={24} className={t.textDim} /></div>
                   : <div className="w-full h-full flex items-center justify-center"><VideoIcon size={24} className={t.textDim} /></div>
                 }
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">

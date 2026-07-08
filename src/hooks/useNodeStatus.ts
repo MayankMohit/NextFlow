@@ -1,6 +1,6 @@
 import { useWorkflowStore } from '@/store/workflowStore'
 
-const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode'])
+const PASSTHROUGH = new Set(['textNode', 'uploadImageNode', 'uploadVideoNode', 'uploadAudioNode'])
 
 export function useNodeStatus(id: string) {
   const edges = useWorkflowStore(state => state.edges)
@@ -22,6 +22,7 @@ export function useNodeStatus(id: string) {
       // A passthrough source with deleted/missing media can't feed this node
       if (src.type === 'uploadImageNode') return !!src.data.imageUrl
       if (src.type === 'uploadVideoNode') return !!src.data.videoUrl
+      if (src.type === 'uploadAudioNode') return !!src.data.audioUrl
       return true
     })
   })()
