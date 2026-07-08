@@ -39,6 +39,22 @@ export default function TranscribeNode({ selected, data, id }: NodeProps) {
 
   const borderColor = selected ? NODE_COLOR : isDark ? "#2a2a2a" : "#e0e0e0";
 
+  const scrollbarStyle = `
+    .transcribenode-result::-webkit-scrollbar { width: 4px; }
+    .transcribenode-result::-webkit-scrollbar-track { background: transparent; }
+    .transcribenode-result::-webkit-scrollbar-thumb {
+      background: ${isDark ? "#3a3a3a" : "#d0d0d0"};
+      border-radius: 99px;
+    }
+    .transcribenode-result::-webkit-scrollbar-thumb:hover {
+      background: ${isDark ? "#555" : "#b0b0b0"};
+    }
+    .transcribenode-result {
+      scrollbar-width: thin;
+      scrollbar-color: ${isDark ? "#3a3a3a transparent" : "#d0d0d0 transparent"};
+    }
+  `;
+
   const glowKeyframes = `
     @keyframes transcribe-node-glow {
       0%, 100% {
@@ -90,6 +106,7 @@ export default function TranscribeNode({ selected, data, id }: NodeProps) {
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      <style>{scrollbarStyle}</style>
       {isNodeRunning && <style>{glowKeyframes}</style>}
       {typeof data.error === "string" && (
         <div className="absolute bottom-full left-0 right-0 z-10 mb-1 flex items-start gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-500 text-white text-[11px] font-medium">
@@ -178,7 +195,7 @@ export default function TranscribeNode({ selected, data, id }: NodeProps) {
           {/* Result */}
           <div className="relative group/result">
             <div
-              className={`nodrag nowheel select-text border rounded p-2 text-xs h-28 overflow-y-auto whitespace-pre-wrap ${resultBg} ${
+              className={`transcribenode-result nodrag nowheel select-text border rounded p-2 text-xs h-28 overflow-y-auto whitespace-pre-wrap ${resultBg} ${
                 result
                   ? isDark
                     ? "text-[#ccc]"
